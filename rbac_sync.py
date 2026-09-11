@@ -15,10 +15,11 @@ Usage:
 
 Dependencies: Python 3.8+, standard library only (no pip installs required).
 
-Open Features: 
+Open Features for Development: 
  1. Add a React UI to manage groups and role
  2. Encrypt and lock the rbac.json
  3. Automatically escalate to sudo on run
+ 4. Add a switch for remote LDAP management using OpenLDAP (including remote auth... etc)
 
 Note: I went back and forth on password set feature and since it wasn't hardly any effort to add it, left it in as optional
 -Rob Saffell

@@ -14,6 +14,15 @@ No third-party dependencies — standard library only.
 
 ---
 
+## Open Features / Bugs
+
+- Add a React UI to manage groups and role
+- Encrypt and lock the rbac.json
+- Automatically escalate to sudo on run
+- Add a switch for remote LDAP management using OpenLDAP (including remote auth... etc)
+
+---
+
 ## Quick Start
 
 ```bash

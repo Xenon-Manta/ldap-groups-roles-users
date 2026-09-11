@@ -1,0 +1,71 @@
+{
+  "ldap_base": "dc=example,dc=com",
+  "groups": [
+    {
+      "name": "developers",
+      "gid": 2001,
+      "description": "Software development team",
+      "sudo_rules": [
+        "ALL=(ALL) NOPASSWD: /usr/bin/docker",
+        "ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart nginx"
+      ]
+    },
+    {
+      "name": "admins",
+      "gid": 2002,
+      "description": "System administrators",
+      "sudo_rules": [
+        "ALL=(ALL) ALL"
+      ]
+    },
+    {
+      "name": "readonly",
+      "gid": 2003,
+      "description": "Read-only users with no elevated privileges",
+      "sudo_rules": []
+    }
+  ],
+  "users": [
+    {
+      "uid": "jdoe",
+      "common_name": "John Doe",
+      "surname": "Doe",
+      "email": "jdoe@example.com",
+      "uid_number": 10001,
+      "gid_number": 2001,
+      "home_directory": "/home/jdoe",
+      "shell": "/bin/bash",
+      "password_hash": "$6$rounds=4096$saltsaltsalt$hashedpasswordhere",
+      "groups": ["developers"],
+      "sudo_rules": []
+    },
+    {
+      "uid": "asmith",
+      "common_name": "Alice Smith",
+      "surname": "Smith",
+      "email": "asmith@example.com",
+      "uid_number": 10002,
+      "gid_number": 2002,
+      "home_directory": "/home/asmith",
+      "shell": "/bin/bash",
+      "password_hash": "$6$rounds=4096$saltsaltsalt$hashedpasswordhere",
+      "groups": ["admins", "developers"],
+      "sudo_rules": [
+        "ALL=(ALL) NOPASSWD: /usr/bin/apt"
+      ]
+    },
+    {
+      "uid": "bwilson",
+      "common_name": "Bob Wilson",
+      "surname": "Wilson",
+      "email": "bwilson@example.com",
+      "uid_number": 10003,
+      "gid_number": 2003,
+      "home_directory": "/home/bwilson",
+      "shell": "/bin/bash",
+      "password_hash": "$6$rounds=4096$saltsaltsalt$hashedpasswordhere",
+      "groups": ["readonly"],
+      "sudo_rules": []
+    }
+  ]
+}

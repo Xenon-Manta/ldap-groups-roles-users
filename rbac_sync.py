@@ -14,6 +14,14 @@ Usage:
     sudo python3 rbac_sync.py [--config rbac.json] [--dry-run] [--verbose]
 
 Dependencies: Python 3.8+, standard library only (no pip installs required).
+
+Open Features: 
+ 1. Add a React UI to manage groups and role
+ 2. Encrypt and lock the rbac.json
+ 3. Automatically escalate to sudo on run
+
+Note: I went back and forth on password set feature and since it wasn't hardly any effort to add it, left it in as optional
+-Rob Saffell
 """
 
 import argparse
@@ -306,6 +314,8 @@ def prune_orphan_sudoers(
 
 # ---------------------------------------------------------------------------
 # Group sync
+# Future feature - build hierarchical group system
+# Add a UI to graphically displays groups
 # ---------------------------------------------------------------------------
 
 def sync_group(group: dict, dry_run: bool) -> None:
@@ -382,6 +392,9 @@ def sync_user(user: dict, dry_run: bool) -> None:
             else:
                 log.debug("User '%s' attributes already up to date.", uid)
 
+            # NOTE I went back and forth on the pasword feature and opted to put it in
+            # If I decide not to use it, nothing happens - but it was no extra
+            # effort to add it, so I wanted it
             # Only update the password if a hash is explicitly provided.
             # We compare against the shadow entry; if unreadable we set it
             # to be safe (requires root).
@@ -503,7 +516,7 @@ def validate_config(config: dict) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
-# Config loader
+# Config loader - Additional testing needed here to confirm statefulness
 # ---------------------------------------------------------------------------
 
 def load_config(path: str) -> dict:

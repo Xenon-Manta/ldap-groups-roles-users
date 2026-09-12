@@ -29,8 +29,8 @@ Access model
               Sudo: near-full admin (ALL=(ALL) ALL) — already set by rbac_sync.py.
   Board     — read-only on employee + manager folders; read/write board folder.
               NO sudo — rbac_sync.py removes membership from sudo/wheel/admin.
-              employee/ and manager/ parent dirs are world-traversable (0o755)
-              so Board can enter them. ACLs on subfolders grant Board r-x.
+              employee/ parent is world-traversable (0o755); manager/ parent is
+              0o750 group=Manager but Board gets r-x via ACL on the parent dir.
               Access to board/workspace is via direct group membership (chmod 2770).
 
 Implementation
@@ -86,15 +86,19 @@ FOLDER_SPEC = [
 
 # Parent directory modes: (relative_path, owning_group, mode)
 #
-# employee/ and manager/ are owned root:root with mode 0o755 (world-traversable)
-# so Board members (and others) can enter and reach the subfolders where the
-# real access control is enforced via POSIX group ownership and ACLs.
+# employee/ is root:root 0o755 — world-traversable so Board can reach its
+# subfolders where ACLs grant them read access.
 #
-# board/ stays 0o750 owned by Board — only Board members and root can traverse
-# into it. Employee and Manager have no business entering the board directory.
+# manager/ is root:Manager 0o750 — only Manager group members and root can
+# traverse into it. Employee members are "others" and get --- at this level,
+# blocking them before they can reach any subfolder. Board is granted r-x on
+# this dir via a setfacl ACL entry (see ACL_SPEC) so they can traverse in
+# to reach the subfolders where they have read access.
+#
+# board/ is root:Board 0o750 — only Board members and root can traverse.
 PARENT_SPEC = [
     ("employee", "root",    0o755),
-    ("manager",  "root",    0o755),
+    ("manager",  "Manager", 0o750),
     ("board",    "Board",   0o750),
 ]
 
@@ -132,6 +136,16 @@ ACL_SPEC = [
     ("employee/shared",   "default:group:Board:r-x"),
     ("employee/projects", "group:Board:r-x"),
     ("employee/projects", "default:group:Board:r-x"),
+
+    # -----------------------------------------------------------------------
+    # manager/ parent directory ACLs
+    # manager/ is root:Manager 0o750 — Employee is blocked as "others".
+    # Board needs r-x on the parent to traverse into subfolders.
+    # deny_manager gets --- on the parent so members cannot traverse in
+    # at all, regardless of any subfolder grants.
+    # -----------------------------------------------------------------------
+    ("manager",           "group:Board:r-x"),
+    ("manager",           "group:deny_manager:---"),
 
     # -----------------------------------------------------------------------
     # Manager folders — default ACL so new files are group-writable
@@ -384,7 +398,7 @@ def print_summary(acl_available: bool) -> None:
     log.info("  ├── employee/")
     log.info("  │   ├── shared/     Employee:rw  Manager:rw  Board:r  (others: no access)")
     log.info("  │   └── projects/   Employee:rw  Manager:rw  Board:r  (others: no access)")
-    log.info("  ├── manager/        (mode 755, root:root — traversable by all; subfolders enforce access)")
+    log.info("  ├── manager/        (mode 750, group=Manager — Employee blocked; Board r-x via ACL; deny_manager:---)")
     log.info("  │   ├── shared/     Manager:rw              Board:r  (Employee: ---)")
     log.info("  │   └── reports/    Manager:rw              Board:r  (Employee: ---)")
     log.info("  └── board/          (mode 750, group=Board   — Employee/Manager blocked at dir level)")

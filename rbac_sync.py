@@ -521,6 +521,7 @@ DENY_GROUP_FOLDERS = {
         "employee/projects",
     ],
     "deny_manager": [
+        "manager",             # parent dir — blocks traversal entirely
         "manager/shared",
         "manager/reports",
     ],

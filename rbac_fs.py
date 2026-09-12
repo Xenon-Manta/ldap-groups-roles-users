@@ -100,6 +100,21 @@ PARENT_SPEC = [
 # Those parent dirs are owned by their respective groups with mode 0o750,
 # so Employee members (who are in "others") get --- and cannot traverse in.
 ACL_SPEC = [
+    # -----------------------------------------------------------------------
+    # Employee folders
+    # default:group:Employee:rwx  — new files/dirs created inside inherit
+    #                               group-write so all Employee members can
+    #                               read and write each other's files.
+    # default:mask::rwx           — ensures the ACL mask doesn't strip the
+    #                               group write bit that the default entries grant.
+    # -----------------------------------------------------------------------
+    ("employee/shared",   "group:Employee:rwx"),
+    ("employee/shared",   "default:group:Employee:rwx"),
+    ("employee/shared",   "default:mask::rwx"),
+    ("employee/projects", "group:Employee:rwx"),
+    ("employee/projects", "default:group:Employee:rwx"),
+    ("employee/projects", "default:mask::rwx"),
+
     # Manager gets read+write on employee folders via explicit ACL
     ("employee/shared",   "group:Manager:rwx"),
     ("employee/shared",   "default:group:Manager:rwx"),
@@ -112,14 +127,33 @@ ACL_SPEC = [
     ("employee/projects", "group:Board:r-x"),
     ("employee/projects", "default:group:Board:r-x"),
 
+    # -----------------------------------------------------------------------
+    # Manager folders — default ACL so new files are group-writable
+    # -----------------------------------------------------------------------
+    ("manager/shared",    "group:Manager:rwx"),
+    ("manager/shared",    "default:group:Manager:rwx"),
+    ("manager/shared",    "default:mask::rwx"),
+    ("manager/reports",   "group:Manager:rwx"),
+    ("manager/reports",   "default:group:Manager:rwx"),
+    ("manager/reports",   "default:mask::rwx"),
+
     # Board gets read-only on manager folders
     ("manager/shared",    "group:Board:r-x"),
     ("manager/shared",    "default:group:Board:r-x"),
     ("manager/reports",   "group:Board:r-x"),
     ("manager/reports",   "default:group:Board:r-x"),
 
-    # Explicitly deny Employee on manager and board subfolders as a belt-and-
-    # suspenders measure on top of the parent dir mode 0o750 blocking them.
+    # -----------------------------------------------------------------------
+    # Board folder — default ACL so new files are group-writable
+    # -----------------------------------------------------------------------
+    ("board/workspace",   "group:Board:rwx"),
+    ("board/workspace",   "default:group:Board:rwx"),
+    ("board/workspace",   "default:mask::rwx"),
+
+    # -----------------------------------------------------------------------
+    # Explicit deny for Employee on manager and board subfolders
+    # Belt-and-suspenders on top of the parent dir mode 0o750
+    # -----------------------------------------------------------------------
     ("manager/shared",    "group:Employee:---"),
     ("manager/shared",    "default:group:Employee:---"),
     ("manager/reports",   "group:Employee:---"),

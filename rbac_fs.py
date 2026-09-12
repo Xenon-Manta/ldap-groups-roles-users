@@ -24,7 +24,8 @@ Access model
   Manager   — read/write employee + manager folders; read board: NO access.
               Sudo: near-full admin (ALL=(ALL) ALL) — already set by rbac_sync.py.
   Board     — read-only on employee + manager folders; read/write board folder.
-              Sudo: read-only inspection commands only.
+              Sudo: read/write commands allowed (POSIX group ACLs enforce
+              that write access only takes effect inside board/workspace).
 
 Implementation
 ──────────────
@@ -135,8 +136,12 @@ EMPLOYEE_ALLOWED_CMDS = [
     "/usr/bin/echo",
 ]
 
-# Board: read-only inspection — no write, no execution of binaries
+# Board: read-only on Employee/Manager folders; read+write in Board folders.
+# Sudo allowlist includes write commands so Board members can work in
+# /srv/saffell-soft/board/workspace. POSIX permissions (2770 + group=Board)
+# already prevent them from writing to Employee or Manager folders.
 BOARD_ALLOWED_CMDS = [
+    # Navigation and inspection (all folders)
     "/bin/ls",
     "/bin/cat",
     "/usr/bin/less",
@@ -154,6 +159,19 @@ BOARD_ALLOWED_CMDS = [
     "/usr/bin/id",
     "/usr/bin/whoami",
     "/usr/bin/pwd",
+    # Write operations (effective only in board/workspace due to group ACLs)
+    "/bin/cp",
+    "/bin/mv",
+    "/bin/mkdir",
+    "/bin/rmdir",
+    "/bin/rm",
+    "/usr/bin/touch",
+    "/bin/nano",
+    "/usr/bin/nano",
+    "/usr/bin/soffice",
+    "/usr/bin/libreoffice",
+    "/usr/bin/sort",
+    "/usr/bin/echo",
 ]
 
 # Sudoers drop-in filenames (written to /etc/sudoers.d/)
@@ -398,7 +416,7 @@ def print_summary(acl_available: bool) -> None:
     log.info("")
     log.info("  Sudoers drop-ins:")
     log.info("    /etc/sudoers.d/rbac_fs_employee  — safe cmds + soffice")
-    log.info("    /etc/sudoers.d/rbac_fs_board     — read-only inspection cmds")
+    log.info("    /etc/sudoers.d/rbac_fs_board     — read/write cmds (writes restricted to board/workspace by ACLs)")
     log.info("    Manager rules managed by rbac_sync.py (ALL=(ALL) ALL)")
     log.info("")
     if not acl_available:

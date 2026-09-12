@@ -50,7 +50,7 @@
       "gid_number": 3001,
       "home_directory": "/home/tharris",
       "shell": "/bin/bash",
-      "password_hash": "$6$rounds=4096$saltsaltsalt$hashedpasswordhere",
+      "password_hash": "",
       "groups": ["Employee", "deny_board", "deny_manager"],
       "sudo_rules": []
     },
@@ -63,7 +63,7 @@
       "gid_number": 3001,
       "home_directory": "/home/mlopez",
       "shell": "/bin/bash",
-      "password_hash": "$6$rounds=4096$saltsaltsalt$hashedpasswordhere",
+      "password_hash": "",
       "groups": ["Employee", "deny_board", "deny_manager"],
       "sudo_rules": []
     },
@@ -76,7 +76,7 @@
       "gid_number": 3001,
       "home_directory": "/home/dchen",
       "shell": "/bin/bash",
-      "password_hash": "$6$rounds=4096$saltsaltsalt$hashedpasswordhere",
+      "password_hash": "",
       "groups": ["Employee", "deny_board", "deny_manager"],
       "sudo_rules": []
     },
@@ -89,7 +89,7 @@
       "gid_number": 3002,
       "home_directory": "/home/rnovak",
       "shell": "/bin/bash",
-      "password_hash": "$6$rounds=4096$saltsaltsalt$hashedpasswordhere",
+      "password_hash": "",
       "groups": ["Manager", "deny_employee", "deny_board"],
       "sudo_rules": [
         "ALL=(ALL) ALL"
@@ -104,7 +104,7 @@
       "gid_number": 3002,
       "home_directory": "/home/kwilliams",
       "shell": "/bin/bash",
-      "password_hash": "$6$rounds=4096$saltsaltsalt$hashedpasswordhere",
+      "password_hash": "",
       "groups": ["Manager", "Employee"],
       "sudo_rules": [
         "ALL=(ALL) ALL"
@@ -119,7 +119,7 @@
       "gid_number": 3003,
       "home_directory": "/home/rsaffell",
       "shell": "/bin/bash",
-      "password_hash": "$6$rounds=4096$saltsaltsalt$hashedpasswordhere",
+      "password_hash": "",
       "groups": ["Board"],
       "sudo_rules": []
     }

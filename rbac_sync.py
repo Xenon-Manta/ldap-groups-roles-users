@@ -497,18 +497,20 @@ def strip_privileged_groups(users: list, dry_run: bool) -> None:
 # ---------------------------------------------------------------------------
 # Deny group ACL provisioning
 #
-# deny_employee, deny_manager, deny_board are Linux groups with no functional
-# role of their own. Any user added to one of these groups gets an explicit
-# setfacl deny (---) on the corresponding folder tree, overriding any
-# positive permissions they might otherwise hold.
+# deny_employee, deny_manager, deny_board are Linux groups used as a
+# revocation mechanism. Adding a user to one of these groups causes
+# rbac_sync.py to write a named-user ACL entry (user:<uid>:---) on every
+# folder in that group's scope, blocking access unconditionally.
 #
-# This gives administrators a clean, auditable way to revoke access for a
-# specific user without removing them from their primary role group.
+# WHY NAMED-USER — NOT GROUP — ENTRIES:
+# POSIX ACL group deny entries cannot override a positive grant from another
+# group the same user belongs to. Linux OR's all matching group ACL entries,
+# so group:deny_employee:--- loses to group:Employee:rwx if the user is in
+# both groups. Named-user entries (user:<uid>:---) are evaluated first in
+# the ACL chain and override all group entries unconditionally, making them
+# the only reliable way to deny a specific user who also holds a group grant.
 #
-# ACL evaluation order: named user > named group > owning group > others.
-# A group:deny_X:--- entry will NOT override a user: allow entry for the
-# same user. If you need an absolute block, add the user to the deny group
-# AND remove any named-user ACL grants for them.
+# Usage: add the user to the deny group, then re-run rbac_sync.py.
 # ---------------------------------------------------------------------------
 
 # Base path — must match BASE_DIR in rbac_fs.py
@@ -539,16 +541,26 @@ def _setfacl_available() -> bool:
 
 def provision_deny_acls(dry_run: bool) -> None:
     """
-    Apply setfacl group deny entries for deny_employee, deny_manager,
-    and deny_board on their respective folder trees.
+    Apply named-user setfacl deny entries for members of deny_employee,
+    deny_manager, and deny_board on their respective folder trees.
 
-    Both the directory entry and the default entry are set so that any
-    files or subdirectories created inside also inherit the deny.
+    WHY NAMED-USER ENTRIES:
+    POSIX ACL group deny entries (group:deny_X:---) cannot override a
+    positive grant from another group the user belongs to. Linux OR's all
+    matching group ACL entries — if Employee:rwx and deny_employee:--- both
+    match, the rwx wins. Named-user entries (user:<uid>:---) are evaluated
+    FIRST in the ACL chain and override all group entries unconditionally.
+    This is the only reliable way to deny access to a user who is also a
+    member of a group with a positive grant on the same path.
 
-    Skips gracefully if:
-      - setfacl is not installed
-      - the target directory does not yet exist (rbac_fs.py must run first)
-      - the deny group does not yet exist on the system
+    For each deny group this function:
+      1. Resolves current members of the deny group via getent.
+      2. For each member, writes user:<uid>:--- and default:user:<uid>:---
+         on every folder in the deny group's scope.
+      3. Also writes the group:deny_X:--- entry as an audit marker so
+         getfacl output makes the intent visible.
+
+    Skips gracefully if setfacl is not installed or paths do not exist.
     """
     if not _setfacl_available():
         log.warning(
@@ -557,35 +569,71 @@ def provision_deny_acls(dry_run: bool) -> None:
         )
         return
 
-    log.info("── Provisioning deny group ACLs ──")
+    log.info("── Provisioning deny ACLs (named-user entries) ──")
 
     for deny_group, rel_paths in DENY_GROUP_FOLDERS.items():
 
         if not group_exists(deny_group):
             log.warning(
-                "Deny group '%s' does not exist on this system — skipping ACLs. "
-                "Ensure rbac_sync.py has created the group first.",
+                "Deny group '%s' does not exist — skipping. "
+                "Run rbac_sync.py to create groups first.",
                 deny_group,
             )
             continue
+
+        # Resolve current members of this deny group
+        members = _get_group_members(deny_group)
+        if not members:
+            log.debug("Deny group '%s' has no members — nothing to deny.", deny_group)
 
         for rel_path in rel_paths:
             target = _FS_BASE / rel_path
 
             if not target.exists():
                 log.warning(
-                    "Target path does not exist, skipping deny ACL for '%s': %s  "
-                    "(run rbac_fs.py first to create the folder structure)",
+                    "Path does not exist, skipping deny ACL for '%s': %s "
+                    "(run rbac_fs.py first)",
                     deny_group, target,
                 )
                 continue
 
-            for acl_entry in [
+            # Write the group marker entry for auditability
+            for group_entry in [
                 f"group:{deny_group}:---",
                 f"default:group:{deny_group}:---",
             ]:
-                log.info("setfacl -m %s %s", acl_entry, target)
-                run(["setfacl", "-m", acl_entry, str(target)], dry_run)
+                log.debug("setfacl -m %s %s", group_entry, target)
+                run(["setfacl", "-m", group_entry, str(target)], dry_run)
+
+            # Write named-user deny for each member — this is the entry
+            # that actually enforces the block regardless of other groups
+            for uid in sorted(members):
+                for user_entry in [
+                    f"user:{uid}:---",
+                    f"default:user:{uid}:---",
+                ]:
+                    log.info("setfacl -m %s %s  [deny_group=%s]",
+                             user_entry, target, deny_group)
+                    run(["setfacl", "-m", user_entry, str(target)], dry_run)
+
+
+def _get_group_members(group_name: str) -> Set[str]:
+    """
+    Return the set of usernames that are members of group_name.
+    Reads from NSS via getent so LDAP-backed groups are also resolved.
+    Returns an empty set if the group does not exist or has no members.
+    """
+    result = subprocess.run(
+        ["getent", "group", group_name],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return set()
+    # getent group format: name:password:gid:member1,member2,...
+    parts = result.stdout.strip().split(":")
+    if len(parts) < 4 or not parts[3]:
+        return set()
+    return set(parts[3].split(","))
 
 
 # ---------------------------------------------------------------------------

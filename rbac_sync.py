@@ -495,6 +495,99 @@ def strip_privileged_groups(users: list, dry_run: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Deny group ACL provisioning
+#
+# deny_employee, deny_manager, deny_board are Linux groups with no functional
+# role of their own. Any user added to one of these groups gets an explicit
+# setfacl deny (---) on the corresponding folder tree, overriding any
+# positive permissions they might otherwise hold.
+#
+# This gives administrators a clean, auditable way to revoke access for a
+# specific user without removing them from their primary role group.
+#
+# ACL evaluation order: named user > named group > owning group > others.
+# A group:deny_X:--- entry will NOT override a user: allow entry for the
+# same user. If you need an absolute block, add the user to the deny group
+# AND remove any named-user ACL grants for them.
+# ---------------------------------------------------------------------------
+
+# Base path — must match BASE_DIR in rbac_fs.py
+_FS_BASE = Path("/srv/saffell-soft")
+
+# (deny_group_name, list of folder paths relative to _FS_BASE)
+DENY_GROUP_FOLDERS = {
+    "deny_employee": [
+        "employee/shared",
+        "employee/projects",
+    ],
+    "deny_manager": [
+        "manager/shared",
+        "manager/reports",
+    ],
+    "deny_board": [
+        "board/workspace",
+    ],
+}
+
+
+def _setfacl_available() -> bool:
+    """Return True if setfacl is installed on this system."""
+    result = subprocess.run(["which", "setfacl"], capture_output=True, text=True)
+    return result.returncode == 0
+
+
+def provision_deny_acls(dry_run: bool) -> None:
+    """
+    Apply setfacl group deny entries for deny_employee, deny_manager,
+    and deny_board on their respective folder trees.
+
+    Both the directory entry and the default entry are set so that any
+    files or subdirectories created inside also inherit the deny.
+
+    Skips gracefully if:
+      - setfacl is not installed
+      - the target directory does not yet exist (rbac_fs.py must run first)
+      - the deny group does not yet exist on the system
+    """
+    if not _setfacl_available():
+        log.warning(
+            "setfacl not found — skipping deny ACL provisioning. "
+            "Install the 'acl' package: sudo apt install acl"
+        )
+        return
+
+    log.info("── Provisioning deny group ACLs ──")
+
+    for deny_group, rel_paths in DENY_GROUP_FOLDERS.items():
+
+        if not group_exists(deny_group):
+            log.warning(
+                "Deny group '%s' does not exist on this system — skipping ACLs. "
+                "Ensure rbac_sync.py has created the group first.",
+                deny_group,
+            )
+            continue
+
+        for rel_path in rel_paths:
+            target = _FS_BASE / rel_path
+
+            if not target.exists():
+                log.warning(
+                    "Target path does not exist, skipping deny ACL for '%s': %s  "
+                    "(run rbac_fs.py first to create the folder structure)",
+                    deny_group, target,
+                )
+                continue
+
+            for acl_entry in [
+                f"group:{deny_group}:---",
+                f"default:group:{deny_group}:---",
+            ]:
+                log.info("setfacl -m %s %s", acl_entry, target)
+                run(["setfacl", "-m", acl_entry, str(target)], dry_run)
+
+
+# ---------------------------------------------------------------------------
 # Config validation
 # ---------------------------------------------------------------------------
 
@@ -645,7 +738,10 @@ def main() -> None:
     #    cannot override group-based grants and are not used here.
     strip_privileged_groups(users, args.dry_run)
 
-    # 4. Clean up orphaned sudoers files for names removed from rbac.json
+    # 4. Apply setfacl deny entries for deny_employee, deny_manager, deny_board.
+    provision_deny_acls(args.dry_run)
+
+    # 5. Clean up orphaned sudoers files for names removed from rbac.json
     prune_orphan_sudoers(
         known_users={u["uid"] for u in users},
         known_groups={g["name"] for g in groups},

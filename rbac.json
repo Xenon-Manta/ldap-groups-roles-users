@@ -20,6 +20,24 @@
       "gid": 3003,
       "description": "Board members with read-only access",
       "sudo_rules": []
+    },
+    {
+      "name": "deny_employee",
+      "gid": 3901,
+      "description": "Explicit ACL deny group for employee folders — members are denied all access to /srv/saffell-soft/employee and subfolders",
+      "sudo_rules": []
+    },
+    {
+      "name": "deny_manager",
+      "gid": 3902,
+      "description": "Explicit ACL deny group for manager folders — members are denied all access to /srv/saffell-soft/manager and subfolders",
+      "sudo_rules": []
+    },
+    {
+      "name": "deny_board",
+      "gid": 3903,
+      "description": "Explicit ACL deny group for board folders — members are denied all access to /srv/saffell-soft/board and subfolders",
+      "sudo_rules": []
     }
   ],
   "users": [

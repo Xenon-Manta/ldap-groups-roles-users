@@ -288,7 +288,11 @@ def sync_sudo_rules(
 
     write_sudoers_file(path, lines, dry_run)
 
-
+# ---------------------------------------------------------------------------
+# This is just a clean up script for me - this script touches and makes
+# a lot of changes to sudoers - I wrote this to clean up some as changes can 
+# get orphaned really easily
+# ---------------------------------------------------------------------------
 def prune_orphan_sudoers(
     known_users: Set[str], known_groups: Set[str], dry_run: bool
 ) -> None:

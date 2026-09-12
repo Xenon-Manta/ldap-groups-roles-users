@@ -111,6 +111,14 @@ PARENT_SPEC = [
 # so Employee members (who are in "others") get --- and cannot traverse in.
 ACL_SPEC = [
     # -----------------------------------------------------------------------
+    # employee/ parent directory ACL
+    # employee/ is root:root 0o755 so anyone can traverse in by default.
+    # deny_employee members get a named-user --- applied by rbac_sync.py,
+    # but we also set the group marker here so getfacl is self-documenting.
+    # -----------------------------------------------------------------------
+    ("employee",          "group:deny_employee:---"),
+
+    # -----------------------------------------------------------------------
     # Employee folders
     # default:group:Employee:rwx  — new files/dirs created inside inherit
     #                               group-write so all Employee members can

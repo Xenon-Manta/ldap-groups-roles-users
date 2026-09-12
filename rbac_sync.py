@@ -519,6 +519,7 @@ _FS_BASE = Path("/srv/saffell-soft")
 # (deny_group_name, list of folder paths relative to _FS_BASE)
 DENY_GROUP_FOLDERS = {
     "deny_employee": [
+        "employee",            # parent dir — blocks listing and traversal
         "employee/shared",
         "employee/projects",
     ],
@@ -528,6 +529,7 @@ DENY_GROUP_FOLDERS = {
         "manager/reports",
     ],
     "deny_board": [
+        "board",               # parent dir — blocks traversal entirely
         "board/workspace",
     ],
 }

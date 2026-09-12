@@ -24,8 +24,8 @@ Access model
   Manager   — read/write employee + manager folders; read board: NO access.
               Sudo: near-full admin (ALL=(ALL) ALL) — already set by rbac_sync.py.
   Board     — read-only on employee + manager folders; read/write board folder.
-              Sudo: read/write commands allowed (POSIX group ACLs enforce
-              that write access only takes effect inside board/workspace).
+              Access to board/workspace is granted via direct group membership
+              (chmod 2770, group=Board) — no sudo rules required.
 
 Implementation
 ──────────────
@@ -137,47 +137,14 @@ EMPLOYEE_ALLOWED_CMDS = [
 ]
 
 # Board: read-only on Employee/Manager folders; read+write in Board folders.
-# Sudo allowlist includes write commands so Board members can work in
-# /srv/saffell-soft/board/workspace. POSIX permissions (2770 + group=Board)
-# already prevent them from writing to Employee or Manager folders.
-BOARD_ALLOWED_CMDS = [
-    # Navigation and inspection (all folders)
-    "/bin/ls",
-    "/bin/cat",
-    "/usr/bin/less",
-    "/bin/grep",
-    "/usr/bin/find",
-    "/usr/bin/wc",
-    "/usr/bin/diff",
-    "/usr/bin/head",
-    "/usr/bin/tail",
-    "/usr/bin/file",
-    "/usr/bin/stat",
-    "/usr/bin/du",
-    "/usr/bin/df",
-    "/bin/date",
-    "/usr/bin/id",
-    "/usr/bin/whoami",
-    "/usr/bin/pwd",
-    # Write operations (effective only in board/workspace due to group ACLs)
-    "/bin/cp",
-    "/bin/mv",
-    "/bin/mkdir",
-    "/bin/rmdir",
-    "/bin/rm",
-    "/usr/bin/touch",
-    "/bin/nano",
-    "/usr/bin/nano",
-    "/usr/bin/soffice",
-    "/usr/bin/libreoffice",
-    "/usr/bin/sort",
-    "/usr/bin/echo",
-]
+# No sudo rules needed — access to board/workspace is granted directly via
+# group membership (chmod 2770, group=Board). The OS enforces that Board
+# members cannot write to Employee or Manager folders (group ACLs: r-x only).
 
 # Sudoers drop-in filenames (written to /etc/sudoers.d/)
+# Board is intentionally absent — their access is purely via group membership.
 SUDOERS_FILES = {
     "Employee": "rbac_fs_employee",
-    "Board":    "rbac_fs_board",
 }
 
 # ---------------------------------------------------------------------------

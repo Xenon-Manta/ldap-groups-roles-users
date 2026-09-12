@@ -19,7 +19,10 @@ Folder layout
 
 Access model
 ────────────
-  Employee  — read/write own folders; read manager + board folders: NO access.
+  Employee  — read/write own folders (employee/shared, employee/projects).
+              NO access to manager/ or board/ — parent dirs are mode 0o750
+              owned by Manager/Board groups; Employee members are "others"
+              and receive --- (no traverse, no list, no read).
               Sudo: safe shell commands + OpenOffice (soffice) only.
   Manager   — read/write employee + manager folders; read board: NO access.
               Sudo: near-full admin (ALL=(ALL) ALL) — already set by rbac_sync.py.
@@ -59,25 +62,45 @@ from typing import List, Optional
 BASE_DIR = Path("/srv/saffell-soft")
 
 # (path_relative_to_BASE_DIR, owning_group, dir_mode)
-# Mode 2770 = setgid + rwxrwx--- (group rw, others none)
-# Mode 2750 = setgid + rwxr-x--- (group read-only for non-owners via ACL)
+#
+# Mode 2770 = setgid + rwxrws---  owning group: full read/write, others: none
+# Mode 2750 = setgid + rwxr-s---  owning group: read-only,       others: none
+#
+# Parent directories (employee/, manager/, board/) use mode 0o710:
+#   - root can traverse
+#   - owning group can traverse (x bit) but cannot list contents (no r)
+#   - others: no access at all
+# This prevents Employee members from even traversing into manager/ or board/.
 FOLDER_SPEC = [
-    # Employee folders — primary group: Employee
+    # Employee folders — group: Employee, full rw
     ("employee/shared",    "Employee", 0o2770),
     ("employee/projects",  "Employee", 0o2770),
-    # Manager folders — primary group: Manager
+    # Manager folders — group: Manager, full rw; Employee has no entry here
     ("manager/shared",     "Manager",  0o2770),
     ("manager/reports",    "Manager",  0o2770),
-    # Board folder — primary group: Board
+    # Board folder — group: Board, full rw; Employee has no entry here
     ("board/workspace",    "Board",    0o2770),
+]
+
+# Parent directory modes: (relative_path, owning_group, mode)
+# 0o750 = rwxr-x---  owning group can traverse; others blocked entirely.
+# Employee is not in the Manager or Board groups, so they are in "others"
+# and get --- on manager/ and board/ — no traversal, no listing, no access.
+PARENT_SPEC = [
+    ("employee", "Employee", 0o750),
+    ("manager",  "Manager",  0o750),
+    ("board",    "Board",    0o750),
 ]
 
 # ACL entries to layer on top of POSIX permissions.
 # Format: (path_relative_to_BASE_DIR, acl_entry)
-# 'default:' entries ensure newly created files/dirs inherit the ACL.
+# 'default:' entries ensure newly created files/subdirs inherit the ACL.
+#
+# Employee is NOT granted any ACL entry on manager/ or board/ folders.
+# Those parent dirs are owned by their respective groups with mode 0o750,
+# so Employee members (who are in "others") get --- and cannot traverse in.
 ACL_SPEC = [
-    # Manager gets read+write on employee folders (already has rw via Employee
-    # group membership in rbac.json, but explicit ACL makes it declarative)
+    # Manager gets read+write on employee folders via explicit ACL
     ("employee/shared",   "group:Manager:rwx"),
     ("employee/shared",   "default:group:Manager:rwx"),
     ("employee/projects", "group:Manager:rwx"),
@@ -94,6 +117,15 @@ ACL_SPEC = [
     ("manager/shared",    "default:group:Board:r-x"),
     ("manager/reports",   "group:Board:r-x"),
     ("manager/reports",   "default:group:Board:r-x"),
+
+    # Explicitly deny Employee on manager and board subfolders as a belt-and-
+    # suspenders measure on top of the parent dir mode 0o750 blocking them.
+    ("manager/shared",    "group:Employee:---"),
+    ("manager/shared",    "default:group:Employee:---"),
+    ("manager/reports",   "group:Employee:---"),
+    ("manager/reports",   "default:group:Employee:---"),
+    ("board/workspace",   "group:Employee:---"),
+    ("board/workspace",   "default:group:Employee:---"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -257,15 +289,17 @@ def provision_all_folders(dry_run: bool) -> None:
     run(["chown", "root:root", str(BASE_DIR)], dry_run)
     run(["chmod", "755", str(BASE_DIR)], dry_run)
 
-    # Create each group's parent directory (employee/, manager/, board/)
-    for parent in ["employee", "manager", "board"]:
-        parent_path = BASE_DIR / parent
+    # Create each group's parent directory with restrictive permissions.
+    # mode 0o750: owning group can traverse; others (incl. Employee on
+    # manager/ and board/) are fully blocked — no listing, no traversal.
+    for rel_parent, group, mode in PARENT_SPEC:
+        parent_path = BASE_DIR / rel_parent
         if not parent_path.exists():
             log.info("Creating parent directory: %s", parent_path)
             if not dry_run:
                 parent_path.mkdir(parents=True, exist_ok=True)
-        run(["chown", "root:root", str(parent_path)], dry_run)
-        run(["chmod", "755", str(parent_path)], dry_run)
+        run(["chown", f"root:{group}", str(parent_path)], dry_run)
+        run(["chmod", oct(mode)[2:], str(parent_path)], dry_run)
 
     for rel_path, group, mode in FOLDER_SPEC:
         provision_folder(rel_path, group, mode, dry_run)
@@ -370,13 +404,13 @@ def print_summary(acl_available: bool) -> None:
     log.info("")
     log.info("  /srv/saffell-soft/")
     log.info("  ├── employee/")
-    log.info("  │   ├── shared/     Employee:rw  Manager:rw  Board:r")
-    log.info("  │   └── projects/   Employee:rw  Manager:rw  Board:r")
-    log.info("  ├── manager/")
-    log.info("  │   ├── shared/     Manager:rw              Board:r")
-    log.info("  │   └── reports/    Manager:rw              Board:r")
-    log.info("  └── board/")
-    log.info("      └── workspace/  Board:rw")
+    log.info("  │   ├── shared/     Employee:rw  Manager:rw  Board:r  (others: no access)")
+    log.info("  │   └── projects/   Employee:rw  Manager:rw  Board:r  (others: no access)")
+    log.info("  ├── manager/        (mode 750, group=Manager — Employee blocked at dir level)")
+    log.info("  │   ├── shared/     Manager:rw              Board:r  (Employee: ---)")
+    log.info("  │   └── reports/    Manager:rw              Board:r  (Employee: ---)")
+    log.info("  └── board/          (mode 750, group=Board   — Employee blocked at dir level)")
+    log.info("      └── workspace/  Board:rw                         (Employee: ---)")
     log.info("")
     log.info("  Sudoers drop-ins:")
     log.info("    /etc/sudoers.d/rbac_fs_employee  — safe cmds + soffice")

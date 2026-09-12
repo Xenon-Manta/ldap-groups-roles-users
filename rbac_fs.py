@@ -352,13 +352,9 @@ def provision_sudoers(dry_run: bool) -> None:
         "Manager sudo rules (ALL=(ALL) ALL) are managed by rbac_sync.py — skipping."
     )
 
-    # Board: read-only allowlist
-    board_content = build_sudoers_content(
-        group="Board",
-        allowed_cmds=BOARD_ALLOWED_CMDS,
-        nopasswd=True,
-    )
-    write_sudoers_file(SUDOERS_FILES["Board"], board_content, dry_run)
+    # Board: no sudoers entry. Board members get read/write on board/workspace
+    # directly via group membership (chmod 2770, group=Board). Read-only access
+    # to employee/manager folders is enforced by POSIX ACLs (r-x entries).
 
 
 # ---------------------------------------------------------------------------
@@ -383,8 +379,8 @@ def print_summary(acl_available: bool) -> None:
     log.info("")
     log.info("  Sudoers drop-ins:")
     log.info("    /etc/sudoers.d/rbac_fs_employee  — safe cmds + soffice")
-    log.info("    /etc/sudoers.d/rbac_fs_board     — read/write cmds (writes restricted to board/workspace by ACLs)")
     log.info("    Manager rules managed by rbac_sync.py (ALL=(ALL) ALL)")
+    log.info("    Board — no sudoers entry; rw via group membership on board/workspace")
     log.info("")
     if not acl_available:
         log.warning(

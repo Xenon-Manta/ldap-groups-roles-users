@@ -20,21 +20,21 @@ Folder layout
 Access model
 ────────────
   Employee  — read/write own folders (employee/shared, employee/projects).
+              NO sudo access — explicit !ALL deny written to /etc/sudoers.d/.
               NO access to manager/ or board/ — parent dirs are mode 0o750
               owned by Manager/Board groups; Employee members are "others"
               and receive --- (no traverse, no list, no read).
-              Sudo: safe shell commands + OpenOffice (soffice) only.
   Manager   — read/write employee + manager folders; read board: NO access.
               Sudo: near-full admin (ALL=(ALL) ALL) — already set by rbac_sync.py.
   Board     — read-only on employee + manager folders; read/write board folder.
-              Access to board/workspace is granted via direct group membership
-              (chmod 2770, group=Board) — no sudo rules required.
+              NO sudo access — explicit !ALL deny written to /etc/sudoers.d/.
+              Access to board/workspace is via direct group membership (chmod 2770).
 
 Implementation
 ──────────────
   • POSIX permissions + setgid bit keep new files group-owned.
   • POSIX ACLs (setfacl) layer cross-group read grants.
-  • /etc/sudoers.d/rbac_fs_* files enforce per-group command allowlists.
+  • /etc/sudoers.d/00_rbac_deny_* hard-deny sudo for Employee and Board.
 
 Must be run as root.
 
@@ -49,11 +49,10 @@ Dependencies: Python 3.8+, acl package (setfacl/getfacl), standard library only.
 import argparse
 import logging
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -331,70 +330,64 @@ def provision_all_acls(dry_run: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Sudoers provisioning
+# Sudoers hardening
 # ---------------------------------------------------------------------------
 
-def _validate_cmd_path(cmd: str) -> bool:
-    """Reject paths with shell metacharacters or traversal sequences."""
-    return bool(re.match(r"^/[a-zA-Z0-9_/\-\.]+$", cmd)) and ".." not in cmd
-
-
-def build_sudoers_content(group: str, allowed_cmds: List[str], nopasswd: bool = True) -> str:
+def write_sudoers_deny(group: str, filename: str, dry_run: bool) -> None:
     """
-    Build the content of a sudoers drop-in for a group.
-    Each command is listed on its own line for clarity and easy auditing.
+    Write a sudoers drop-in that explicitly denies all sudo access for group.
+    The '!ALL' operator tells sudo to refuse every command for this group.
+    Prefixed '00_' so it sorts and is parsed before any other drop-ins.
     """
-    passwd_flag = "NOPASSWD: " if nopasswd else ""
-    lines = [
-        "# Managed by rbac_fs.py — do not edit manually",
-        f"# Group: {group} — allowed commands",
-        "#",
-        "# Format: %group ALL=(ALL) NOPASSWD: /path/to/cmd",
-        "",
-    ]
-    for cmd in allowed_cmds:
-        if not _validate_cmd_path(cmd):
-            log.warning("Skipping invalid command path in sudoers spec: %s", cmd)
-            continue
-        lines.append(f"%{group} ALL=(ALL) {passwd_flag}{cmd}")
-    lines.append("")
-    return "\n".join(lines)
-
-
-def write_sudoers_file(filename: str, content: str, dry_run: bool) -> None:
     path = SUDOERS_DIR / filename
+    content = "\n".join([
+        "# Managed by rbac_fs.py — do not edit manually",
+        f"# Explicit sudo deny for group: {group}",
+        "# This group must not have sudo access of any kind.",
+        "",
+        f"%{group} ALL=(ALL) !ALL",
+        "",
+    ])
+
     if dry_run:
-        log.info("[dry-run] would write sudoers file %s:\n%s", path, content)
+        log.info("[dry-run] would write sudoers deny file %s", path)
         return
-    path.write_text(content)
-    path.chmod(0o440)
-    log.info("Wrote sudoers file: %s", path)
-
-
-def provision_sudoers(dry_run: bool) -> None:
-    log.info("── Provisioning sudoers rules ──")
 
     if not SUDOERS_DIR.exists():
         log.error("%s does not exist — cannot write sudoers files.", SUDOERS_DIR)
         return
 
-    # Employee: restricted allowlist
-    employee_content = build_sudoers_content(
-        group="Employee",
-        allowed_cmds=EMPLOYEE_ALLOWED_CMDS,
-        nopasswd=True,
-    )
-    write_sudoers_file(SUDOERS_FILES["Employee"], employee_content, dry_run)
+    path.write_text(content)
+    path.chmod(0o440)
+    log.info("Wrote sudoers deny file: %s", path)
 
-    # Manager: near-full admin — written by rbac_sync.py (ALL=(ALL) ALL).
-    # We log a note here for auditability but don't overwrite rbac_sync's file.
-    log.info(
-        "Manager sudo rules (ALL=(ALL) ALL) are managed by rbac_sync.py — skipping."
-    )
 
-    # Board: no sudoers entry. Board members get read/write on board/workspace
-    # directly via group membership (chmod 2770, group=Board). Read-only access
-    # to employee/manager folders is enforced by POSIX ACLs (r-x entries).
+def remove_stale_employee_allowlist(dry_run: bool) -> None:
+    """
+    Remove any previously written Employee allowlist drop-in from earlier
+    versions of this script so it cannot override the new deny rule.
+    """
+    stale = SUDOERS_DIR / "rbac_fs_employee"
+    if stale.exists():
+        log.info("Removing stale Employee sudoers allowlist: %s", stale)
+        if not dry_run:
+            stale.unlink()
+
+
+def provision_sudoers(dry_run: bool) -> None:
+    log.info("── Provisioning sudoers deny rules for Employee and Board ──")
+
+    # Remove any leftover allowlist file from previous script versions
+    remove_stale_employee_allowlist(dry_run)
+
+    # Write hard deny for Employee
+    write_sudoers_deny("Employee", SUDO_DENY_FILES["Employee"], dry_run)
+
+    # Write hard deny for Board
+    write_sudoers_deny("Board", SUDO_DENY_FILES["Board"], dry_run)
+
+    # Manager: full admin — managed by rbac_sync.py, not touched here.
+    log.info("Manager sudo rules (ALL=(ALL) ALL) are managed by rbac_sync.py — skipping.")
 
 
 # ---------------------------------------------------------------------------
@@ -418,9 +411,9 @@ def print_summary(acl_available: bool) -> None:
     log.info("      └── workspace/  Board:rw                         (Employee: ---)")
     log.info("")
     log.info("  Sudoers drop-ins:")
-    log.info("    /etc/sudoers.d/rbac_fs_employee  — safe cmds + soffice")
+    log.info("    /etc/sudoers.d/00_rbac_deny_employee  — !ALL hard deny (no sudo)")
+    log.info("    /etc/sudoers.d/00_rbac_deny_board     — !ALL hard deny (no sudo)")
     log.info("    Manager rules managed by rbac_sync.py (ALL=(ALL) ALL)")
-    log.info("    Board — no sudoers entry; rw via group membership on board/workspace")
     log.info("")
     if not acl_available:
         log.warning(

@@ -163,54 +163,25 @@ ACL_SPEC = [
 ]
 
 # ---------------------------------------------------------------------------
-# Sudoers configuration
+# Sudoers hardening — deny sudo for Employee and Board entirely
+#
+# Neither Employee nor Board should have any sudo access. Writing explicit
+# deny drop-ins (using !ALL) to /etc/sudoers.d/ ensures this holds even if
+# another rule or package install accidentally grants access later.
+#
+# sudoers precedence: later files override earlier ones, BUT explicit !ALL
+# deny rules in a named drop-in act as a hard block that cannot be
+# overridden by earlier wildcard grants in the same parse order.
+#
+# File naming: prefixed with '00_' so they sort first and establish the
+# deny baseline before any other drop-ins are evaluated.
 # ---------------------------------------------------------------------------
 
 SUDOERS_DIR = Path("/etc/sudoers.d")
 
-# Employee: safe shell commands + OpenOffice only. No su, no passwd, no chmod,
-# no chown, no package managers, no network tools that bypass controls.
-EMPLOYEE_ALLOWED_CMDS = [
-    "/bin/ls",
-    "/bin/cat",
-    "/bin/cp",
-    "/bin/mv",
-    "/bin/mkdir",
-    "/bin/rmdir",
-    "/bin/rm",
-    "/usr/bin/less",
-    "/bin/grep",
-    "/usr/bin/find",
-    "/bin/nano",
-    "/usr/bin/nano",
-    "/usr/bin/soffice",          # OpenOffice / LibreOffice
-    "/usr/bin/libreoffice",
-    "/usr/bin/ooffice",
-    "/usr/bin/wc",
-    "/usr/bin/sort",
-    "/usr/bin/diff",
-    "/usr/bin/head",
-    "/usr/bin/tail",
-    "/usr/bin/file",
-    "/usr/bin/stat",
-    "/usr/bin/du",
-    "/usr/bin/df",
-    "/bin/date",
-    "/usr/bin/id",
-    "/usr/bin/whoami",
-    "/usr/bin/pwd",
-    "/usr/bin/echo",
-]
-
-# Board: read-only on Employee/Manager folders; read+write in Board folders.
-# No sudo rules needed — access to board/workspace is granted directly via
-# group membership (chmod 2770, group=Board). The OS enforces that Board
-# members cannot write to Employee or Manager folders (group ACLs: r-x only).
-
-# Sudoers drop-in filenames (written to /etc/sudoers.d/)
-# Board is intentionally absent — their access is purely via group membership.
-SUDOERS_FILES = {
-    "Employee": "rbac_fs_employee",
+SUDO_DENY_FILES = {
+    "Employee": "00_rbac_deny_employee",
+    "Board":    "00_rbac_deny_board",
 }
 
 # ---------------------------------------------------------------------------

@@ -21,13 +21,16 @@ Access model
 ────────────
   Employee  — read/write own folders (employee/shared, employee/projects).
               NO sudo — rbac_sync.py removes membership from sudo/wheel/admin.
-              NO access to manager/ or board/ — parent dirs are mode 0o750
-              owned by Manager/Board groups; Employee members are "others"
-              and receive --- (no traverse, no list, no read).
+              NO access to manager/ subfolders — explicit group:Employee:---
+              ACL deny entries on each manager subfolder block access.
+              NO access to board/ — parent dir is mode 0o750 owned by Board;
+              Employee members are "others" and receive ---.
   Manager   — read/write employee + manager folders; read board: NO access.
               Sudo: near-full admin (ALL=(ALL) ALL) — already set by rbac_sync.py.
   Board     — read-only on employee + manager folders; read/write board folder.
               NO sudo — rbac_sync.py removes membership from sudo/wheel/admin.
+              employee/ and manager/ parent dirs are world-traversable (0o755)
+              so Board can enter them. ACLs on subfolders grant Board r-x.
               Access to board/workspace is via direct group membership (chmod 2770).
 
 Implementation
@@ -82,13 +85,17 @@ FOLDER_SPEC = [
 ]
 
 # Parent directory modes: (relative_path, owning_group, mode)
-# 0o750 = rwxr-x---  owning group can traverse; others blocked entirely.
-# Employee is not in the Manager or Board groups, so they are in "others"
-# and get --- on manager/ and board/ — no traversal, no listing, no access.
+#
+# employee/ and manager/ are owned root:root with mode 0o755 (world-traversable)
+# so Board members (and others) can enter and reach the subfolders where the
+# real access control is enforced via POSIX group ownership and ACLs.
+#
+# board/ stays 0o750 owned by Board — only Board members and root can traverse
+# into it. Employee and Manager have no business entering the board directory.
 PARENT_SPEC = [
-    ("employee", "Employee", 0o750),
-    ("manager",  "Manager",  0o750),
-    ("board",    "Board",    0o750),
+    ("employee", "root",    0o755),
+    ("manager",  "root",    0o755),
+    ("board",    "Board",   0o750),
 ]
 
 # ACL entries to layer on top of POSIX permissions.
@@ -377,10 +384,10 @@ def print_summary(acl_available: bool) -> None:
     log.info("  ├── employee/")
     log.info("  │   ├── shared/     Employee:rw  Manager:rw  Board:r  (others: no access)")
     log.info("  │   └── projects/   Employee:rw  Manager:rw  Board:r  (others: no access)")
-    log.info("  ├── manager/        (mode 750, group=Manager — Employee blocked at dir level)")
+    log.info("  ├── manager/        (mode 755, root:root — traversable by all; subfolders enforce access)")
     log.info("  │   ├── shared/     Manager:rw              Board:r  (Employee: ---)")
     log.info("  │   └── reports/    Manager:rw              Board:r  (Employee: ---)")
-    log.info("  └── board/          (mode 750, group=Board   — Employee blocked at dir level)")
+    log.info("  └── board/          (mode 750, group=Board   — Employee/Manager blocked at dir level)")
     log.info("      └── workspace/  Board:rw                         (Employee: ---)")
     log.info("")
     log.info("  Sudo controls:")

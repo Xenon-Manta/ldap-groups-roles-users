@@ -20,21 +20,21 @@ Folder layout
 Access model
 ────────────
   Employee  — read/write own folders (employee/shared, employee/projects).
-              NO sudo access — explicit !ALL deny written to /etc/sudoers.d/.
+              NO sudo — rbac_sync.py removes membership from sudo/wheel/admin.
               NO access to manager/ or board/ — parent dirs are mode 0o750
               owned by Manager/Board groups; Employee members are "others"
               and receive --- (no traverse, no list, no read).
   Manager   — read/write employee + manager folders; read board: NO access.
               Sudo: near-full admin (ALL=(ALL) ALL) — already set by rbac_sync.py.
   Board     — read-only on employee + manager folders; read/write board folder.
-              NO sudo access — explicit !ALL deny written to /etc/sudoers.d/.
+              NO sudo — rbac_sync.py removes membership from sudo/wheel/admin.
               Access to board/workspace is via direct group membership (chmod 2770).
 
 Implementation
 ──────────────
   • POSIX permissions + setgid bit keep new files group-owned.
   • POSIX ACLs (setfacl) layer cross-group read grants.
-  • /etc/sudoers.d/00_rbac_deny_* hard-deny sudo for Employee and Board.
+  • rbac_sync.py strip_privileged_groups() removes Employee/Board from sudo/wheel/admin.
 
 Must be run as root.
 
@@ -164,24 +164,25 @@ ACL_SPEC = [
 # ---------------------------------------------------------------------------
 # Sudoers hardening — deny sudo for Employee and Board entirely
 #
-# Neither Employee nor Board should have any sudo access. Writing explicit
-# deny drop-ins (using !ALL) to /etc/sudoers.d/ ensures this holds even if
-# another rule or package install accidentally grants access later.
+# The authoritative sudo block for Employee and Board is in rbac_sync.py,
+# which calls strip_privileged_groups() to remove those users from the
+# 'sudo', 'wheel', and 'admin' system groups after every sync.
 #
-# sudoers precedence: later files override earlier ones, BUT explicit !ALL
-# deny rules in a named drop-in act as a hard block that cannot be
-# overridden by earlier wildcard grants in the same parse order.
-#
-# File naming: prefixed with '00_' so they sort first and establish the
-# deny baseline before any other drop-ins are evaluated.
+# NOTE: sudoers drop-in files using '!ALL' are NOT used here. The !ALL
+# operator only negates a grant within the same rule — it cannot block
+# access that comes from group membership in /etc/sudoers or PAM.
+# Removing users from privileged system groups is the correct control.
 # ---------------------------------------------------------------------------
 
 SUDOERS_DIR = Path("/etc/sudoers.d")
 
-SUDO_DENY_FILES = {
-    "Employee": "00_rbac_deny_employee",
-    "Board":    "00_rbac_deny_board",
-}
+# Drop-in files written by previous versions of this script that used the
+# ineffective !ALL approach. These are cleaned up on every run.
+STALE_SUDOERS_FILES = [
+    "00_rbac_deny_employee",
+    "00_rbac_deny_board",
+    "rbac_fs_employee",
+]
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -330,64 +331,36 @@ def provision_all_acls(dry_run: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Sudoers hardening
+# Sudoers cleanup
 # ---------------------------------------------------------------------------
 
-def write_sudoers_deny(group: str, filename: str, dry_run: bool) -> None:
+def provision_sudoers(dry_run: bool) -> None:
     """
-    Write a sudoers drop-in that explicitly denies all sudo access for group.
-    The '!ALL' operator tells sudo to refuse every command for this group.
-    Prefixed '00_' so it sorts and is parsed before any other drop-ins.
-    """
-    path = SUDOERS_DIR / filename
-    content = "\n".join([
-        "# Managed by rbac_fs.py — do not edit manually",
-        f"# Explicit sudo deny for group: {group}",
-        "# This group must not have sudo access of any kind.",
-        "",
-        f"%{group} ALL=(ALL) !ALL",
-        "",
-    ])
+    Remove any stale sudoers drop-in files written by previous versions of
+    this script that used the ineffective !ALL deny approach.
 
-    if dry_run:
-        log.info("[dry-run] would write sudoers deny file %s", path)
-        return
+    Sudo access for Employee and Board is blocked by rbac_sync.py removing
+    those users from the sudo/wheel/admin system groups — not by drop-in files.
+    """
+    log.info("── Cleaning up stale sudoers drop-ins ──")
 
     if not SUDOERS_DIR.exists():
-        log.error("%s does not exist — cannot write sudoers files.", SUDOERS_DIR)
+        log.debug("%s does not exist — skipping sudoers cleanup.", SUDOERS_DIR)
         return
 
-    path.write_text(content)
-    path.chmod(0o440)
-    log.info("Wrote sudoers deny file: %s", path)
+    for filename in STALE_SUDOERS_FILES:
+        path = SUDOERS_DIR / filename
+        if path.exists():
+            log.info("Removing stale sudoers file: %s", path)
+            if not dry_run:
+                path.unlink()
+        else:
+            log.debug("Stale sudoers file not present (already clean): %s", path)
 
-
-def remove_stale_employee_allowlist(dry_run: bool) -> None:
-    """
-    Remove any previously written Employee allowlist drop-in from earlier
-    versions of this script so it cannot override the new deny rule.
-    """
-    stale = SUDOERS_DIR / "rbac_fs_employee"
-    if stale.exists():
-        log.info("Removing stale Employee sudoers allowlist: %s", stale)
-        if not dry_run:
-            stale.unlink()
-
-
-def provision_sudoers(dry_run: bool) -> None:
-    log.info("── Provisioning sudoers deny rules for Employee and Board ──")
-
-    # Remove any leftover allowlist file from previous script versions
-    remove_stale_employee_allowlist(dry_run)
-
-    # Write hard deny for Employee
-    write_sudoers_deny("Employee", SUDO_DENY_FILES["Employee"], dry_run)
-
-    # Write hard deny for Board
-    write_sudoers_deny("Board", SUDO_DENY_FILES["Board"], dry_run)
-
-    # Manager: full admin — managed by rbac_sync.py, not touched here.
-    log.info("Manager sudo rules (ALL=(ALL) ALL) are managed by rbac_sync.py — skipping.")
+    log.info(
+        "Sudo access for Employee and Board is enforced by rbac_sync.py "
+        "(strip_privileged_groups removes sudo/wheel/admin membership)."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -410,10 +383,9 @@ def print_summary(acl_available: bool) -> None:
     log.info("  └── board/          (mode 750, group=Board   — Employee blocked at dir level)")
     log.info("      └── workspace/  Board:rw                         (Employee: ---)")
     log.info("")
-    log.info("  Sudoers drop-ins:")
-    log.info("    /etc/sudoers.d/00_rbac_deny_employee  — !ALL hard deny (no sudo)")
-    log.info("    /etc/sudoers.d/00_rbac_deny_board     — !ALL hard deny (no sudo)")
-    log.info("    Manager rules managed by rbac_sync.py (ALL=(ALL) ALL)")
+    log.info("  Sudo controls:")
+    log.info("    Employee + Board: removed from sudo/wheel/admin by rbac_sync.py")
+    log.info("    Manager: ALL=(ALL) ALL via rbac_sync.py")
     log.info("")
     if not acl_available:
         log.warning(

@@ -447,6 +447,53 @@ def sync_user_groups(uid: str, desired_groups: Set[str], dry_run: bool) -> None:
         run(["gpasswd", "--delete", uid, g], dry_run)
 
 
+# Groups that confer sudo/admin access on the local system.
+# Users who are not in the Manager group must never be members of these.
+PRIVILEGED_SYSTEM_GROUPS = {"sudo", "wheel", "admin"}
+
+# RBAC groups that must never have privileged system group membership.
+NO_SUDO_RBAC_GROUPS = {"Employee", "Board"}
+
+
+def strip_privileged_groups(users: list, dry_run: bool) -> None:
+    """
+    Forcibly remove Employee-only and Board-only users from any system group
+    that grants sudo access (sudo, wheel, admin).
+
+    This is the authoritative sudo block for these roles. sudoers drop-in
+    files using !ALL are ineffective because they cannot override a grant
+    that comes from group membership in /etc/sudoers or PAM. Removing the
+    user from the privileged group at the OS level is the correct control.
+
+    Runs after sync_user() so it overrides any accidental additions.
+    """
+    for user in users:
+        uid = user["uid"]
+        user_rbac_groups = set(user.get("groups", []))
+
+        # Only act on users whose RBAC groups are entirely within NO_SUDO_RBAC_GROUPS
+        # i.e. they are not a Manager (which legitimately needs sudo).
+        if user_rbac_groups - NO_SUDO_RBAC_GROUPS:
+            # User has at least one non-restricted RBAC group (e.g. Manager) — skip.
+            continue
+
+        current_groups = get_user_supplementary_groups(uid)
+        to_strip = current_groups & PRIVILEGED_SYSTEM_GROUPS
+
+        if to_strip:
+            for g in sorted(to_strip):
+                log.info(
+                    "Stripping privileged group '%s' from user '%s' "
+                    "(role does not permit sudo access)",
+                    g, uid,
+                )
+                run(["gpasswd", "--delete", uid, g], dry_run)
+        else:
+            log.debug(
+                "User '%s' has no privileged system group membership — OK.", uid
+            )
+
+
 # ---------------------------------------------------------------------------
 # Config validation
 # ---------------------------------------------------------------------------
@@ -593,7 +640,12 @@ def main() -> None:
     for user in users:
         sync_user(user, args.dry_run)
 
-    # 3. Clean up orphaned sudoers files for names removed from rbac.json
+    # 3. Strip sudo/wheel/admin group membership from Employee and Board users.
+    #    This is the authoritative sudo block — sudoers drop-in !ALL rules
+    #    cannot override group-based grants and are not used here.
+    strip_privileged_groups(users, args.dry_run)
+
+    # 4. Clean up orphaned sudoers files for names removed from rbac.json
     prune_orphan_sudoers(
         known_users={u["uid"] for u in users},
         known_groups={g["name"] for g in groups},

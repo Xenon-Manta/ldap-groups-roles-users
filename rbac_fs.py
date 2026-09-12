@@ -239,8 +239,9 @@ def provision_folder(
     log.info("Setting ownership root:%s on %s", group, path)
     run(["chown", f"root:{group}", str(path)], dry_run)
 
-    # Set mode (includes setgid bit)
-    octal_str = oct(mode)
+    # Set mode (includes setgid bit).
+    # oct() produces '0o2770' — strip the '0o' prefix so chmod sees '2770'.
+    octal_str = oct(mode)[2:]
     log.info("Setting mode %s on %s", octal_str, path)
     run(["chmod", octal_str, str(path)], dry_run)
 

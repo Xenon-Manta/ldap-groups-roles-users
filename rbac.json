@@ -51,7 +51,7 @@
       "home_directory": "/home/tharris",
       "shell": "/bin/bash",
       "password_hash": "$6$rounds=4096$saltsaltsalt$hashedpasswordhere",
-      "groups": ["Employee"],
+      "groups": ["Employee", "deny_board", "deny_manager"],
       "sudo_rules": []
     },
     {
@@ -64,7 +64,7 @@
       "home_directory": "/home/mlopez",
       "shell": "/bin/bash",
       "password_hash": "$6$rounds=4096$saltsaltsalt$hashedpasswordhere",
-      "groups": ["Employee"],
+      "groups": ["Employee", "deny_board", "deny_manager"],
       "sudo_rules": []
     },
     {
@@ -77,7 +77,7 @@
       "home_directory": "/home/dchen",
       "shell": "/bin/bash",
       "password_hash": "$6$rounds=4096$saltsaltsalt$hashedpasswordhere",
-      "groups": ["Employee"],
+      "groups": ["Employee", "deny_board", "deny_manager"],
       "sudo_rules": []
     },
     {
@@ -90,7 +90,7 @@
       "home_directory": "/home/rnovak",
       "shell": "/bin/bash",
       "password_hash": "$6$rounds=4096$saltsaltsalt$hashedpasswordhere",
-      "groups": ["Manager", "Employee"],
+      "groups": ["Manager", "deny_employee", "deny_board"],
       "sudo_rules": [
         "ALL=(ALL) ALL"
       ]

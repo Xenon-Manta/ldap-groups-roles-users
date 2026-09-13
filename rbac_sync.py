@@ -2,26 +2,32 @@
 """
 rbac_sync.py — Local user and group RBAC management for Ubuntu.
 
-Reads rbac.json and ensures the system state matches:
+Reads rbac.json and posix_rules.json and ensures the system state matches:
   - Groups are created if missing, updated if attributes differ.
   - Users are created if missing, updated if attributes differ.
   - Group memberships are reconciled to exactly match the spec.
   - Sudo rules for groups and users are written to /etc/sudoers.d/.
+  - Employee and Board users are stripped from privileged system groups
+    (sudo, wheel, admin) — rules sourced from posix_rules.json.
+  - Named-user ACL deny entries are applied for members of deny groups
+    (deny_employee, deny_manager, deny_board) — paths sourced from
+    posix_rules.json.
 
 Must be run as root.
 
 Usage:
-    sudo python3 rbac_sync.py [--config rbac.json] [--dry-run] [--verbose]
+    sudo python3 rbac_sync.py [--config rbac.json] [--rules posix_rules.json] [--dry-run] [--verbose]
 
 Dependencies: Python 3.8+, standard library only (no pip installs required).
 
-Open Features for Development: 
- 1. Add a React UI to manage groups and role
- 2. Encrypt and lock the rbac.json
+Open Features for Development:
+ 1. Add a React UI to manage groups and roles
+ 2. Encrypt and lock the rbac.json / posix_rules.json
  3. Automatically escalate to sudo on run
- 4. Add a switch for remote LDAP management using OpenLDAP (including remote auth... etc)
+ 4. Add a switch for remote LDAP management using OpenLDAP (including remote auth etc.)
 
-Note: I went back and forth on password set feature and since it wasn't hardly any effort to add it, left it in as optional
+Note: I went back and forth on password set feature and since it wasn't hardly any
+effort to add it, left it in as optional.
 -Rob Saffell
 """
 
@@ -34,14 +40,14 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 SUDOERS_DIR = Path("/etc/sudoers.d")
-RBAC_SUDOERS_PREFIX = "rbac_"  # all files we own are prefixed with this
+RBAC_SUDOERS_PREFIX = "rbac_"  # all sudoers files we own carry this prefix
 DEFAULT_SHELL = "/bin/bash"
 DEFAULT_HOME_BASE = "/home"
 
@@ -61,10 +67,34 @@ def setup_logging(verbose: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Config / rules loaders
+# ---------------------------------------------------------------------------
+
+def load_json(path: str, label: str) -> Dict:
+    p = Path(path)
+    if not p.exists():
+        log.error("%s file not found: %s", label, path)
+        sys.exit(1)
+    with p.open(encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError as exc:
+            log.error("Invalid JSON in %s: %s", path, exc)
+            sys.exit(1)
+
+
+def validate_posix_rules(rules: Dict) -> None:
+    required = ["base_dir", "deny_groups", "sudo_controls"]
+    missing = [k for k in required if k not in rules]
+    if missing:
+        log.error("posix_rules.json is missing required keys: %s", missing)
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # Safe command runner
 # ---------------------------------------------------------------------------
 
-# Arguments that carry sensitive values and should be redacted in log output.
 _REDACT_NEXT = {"--password", "-p"}
 
 
@@ -90,8 +120,7 @@ def run(
 ) -> subprocess.CompletedProcess:
     """
     Run a system command.
-
-    In dry-run mode the command is only logged, never executed.
+    Dry-run mode logs without executing.
     Sensitive flag values (e.g. --password) are redacted from log output.
     """
     safe_cmd = " ".join(_redact(cmd))
@@ -112,7 +141,7 @@ def run(
 
 
 # ---------------------------------------------------------------------------
-# System state helpers (always re-read from /etc/* to avoid stale caches)
+# System state helpers
 # ---------------------------------------------------------------------------
 
 def _run_getent(database: str, key: str) -> Optional[str]:
@@ -136,7 +165,6 @@ def user_exists(uid: str) -> bool:
 def get_group_gid(name: str) -> Optional[int]:
     line = _run_getent("group", name)
     if line:
-        # Format: name:password:gid:members
         parts = line.split(":")
         if len(parts) >= 3:
             try:
@@ -157,18 +185,15 @@ def get_user_info(uid: str) -> Optional[pwd.struct_passwd]:
     parts = line.split(":")
     if len(parts) < 7:
         return None
-    # Reconstruct as a struct_passwd-compatible object via pwd (parse manually)
-    # pwd.struct_passwd fields: pw_name, pw_passwd, pw_uid, pw_gid,
-    #                           pw_gecos, pw_dir, pw_shell
     try:
         return pwd.struct_passwd((
-            parts[0],           # pw_name
-            parts[1],           # pw_passwd
-            int(parts[2]),      # pw_uid
-            int(parts[3]),      # pw_gid
-            parts[4],           # pw_gecos
-            parts[5],           # pw_dir
-            parts[6],           # pw_shell
+            parts[0],       # pw_name
+            parts[1],       # pw_passwd
+            int(parts[2]),  # pw_uid
+            int(parts[3]),  # pw_gid
+            parts[4],       # pw_gecos
+            parts[5],       # pw_dir
+            parts[6],       # pw_shell
         ))
     except (ValueError, IndexError):
         return None
@@ -177,22 +202,19 @@ def get_user_info(uid: str) -> Optional[pwd.struct_passwd]:
 def get_user_supplementary_groups(uid: str) -> Set[str]:
     """
     Return the set of supplementary group names a user currently belongs to.
-    Reads from NSS fresh each call so changes made earlier in the same run
-    are always reflected.
+    Reads fresh from NSS each call so mid-run changes are reflected.
     """
-    groups: Set[str] = set()
     result = subprocess.run(
         ["id", "-Gn", uid],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
-        return groups
-    # id -Gn returns all groups including the primary; we want supplementary only.
-    # We'll compute primary group name separately and exclude it.
+        return set()
+
     all_groups = set(result.stdout.strip().split())
 
-    # Determine primary group name from /etc/group
+    # Exclude the primary group
     info = get_user_info(uid)
     if info:
         primary_line = _run_getent("group", str(info.pw_gid))
@@ -202,6 +224,28 @@ def get_user_supplementary_groups(uid: str) -> Set[str]:
 
     return all_groups
 
+
+def _get_group_members(group_name: str) -> Set[str]:
+    """
+    Return the set of usernames that are members of group_name.
+    Reads from NSS via getent so LDAP-backed groups are resolved.
+    """
+    result = subprocess.run(
+        ["getent", "group", group_name],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return set()
+    # Format: name:password:gid:member1,member2,...
+    parts = result.stdout.strip().split(":")
+    if len(parts) < 4 or not parts[3]:
+        return set()
+    return set(parts[3].split(","))
+
+
+# ---------------------------------------------------------------------------
+# Sudoers file helpers
+# ---------------------------------------------------------------------------
 
 def validate_sudoers_rule(rule: str) -> bool:
     """
@@ -216,17 +260,12 @@ def validate_sudoers_rule(rule: str) -> bool:
     return True
 
 
-# ---------------------------------------------------------------------------
-# Sudoers file helpers
-# ---------------------------------------------------------------------------
-
 def _safe_name(name: str) -> str:
-    """Sanitise a user/group name for use as a filename component."""
+    """Sanitise a user/group name for use as a sudoers filename component."""
     return re.sub(r"[^a-zA-Z0-9_-]", "_", name)
 
 
 def sudoers_path(name: str, kind: str) -> Path:
-    """Return the Path for the sudoers drop-in file we manage for name/kind."""
     return SUDOERS_DIR / f"{RBAC_SUDOERS_PREFIX}{kind}_{_safe_name(name)}"
 
 
@@ -252,10 +291,7 @@ def remove_sudoers_file(path: Path, dry_run: bool) -> None:
 def sync_sudo_rules(
     name: str, kind: str, rules: List[str], dry_run: bool
 ) -> None:
-    """
-    Write or remove a /etc/sudoers.d/ drop-in for a user or group.
-    kind must be 'user' or 'group'.
-    """
+    """Write or remove a /etc/sudoers.d/ drop-in for a user or group."""
     path = sudoers_path(name, kind)
 
     if not rules:
@@ -270,7 +306,6 @@ def sync_sudo_rules(
         )
         return
 
-    # Sudoers prefix: %groupname for groups, plain name for users
     subject = f"%{name}" if kind == "group" else name
     lines = [
         "# Managed by rbac_sync.py — do not edit manually",
@@ -288,24 +323,23 @@ def sync_sudo_rules(
 
     write_sudoers_file(path, lines, dry_run)
 
-# ---------------------------------------------------------------------------
-# This is just a clean up script for me - this script touches and makes
-# a lot of changes to sudoers - I wrote this to clean up some as changes can 
-# get orphaned really easily
-# ---------------------------------------------------------------------------
+
 def prune_orphan_sudoers(
     known_users: Set[str], known_groups: Set[str], dry_run: bool
 ) -> None:
-    """Remove rbac-managed sudoers files for names no longer in rbac.json."""
+    """
+    Remove rbac-managed sudoers files for names no longer in rbac.json.
+    This is a housekeeping step — sudoers entries can get orphaned easily
+    as users and groups are added/removed.
+    """
     if not SUDOERS_DIR.exists():
         return
 
     for path in SUDOERS_DIR.glob(f"{RBAC_SUDOERS_PREFIX}*"):
-        stem = path.name[len(RBAC_SUDOERS_PREFIX):]  # e.g. "user_jdoe" or "group_devs"
+        stem = path.name[len(RBAC_SUDOERS_PREFIX):]
 
         if stem.startswith("user_"):
             safe = stem[len("user_"):]
-            # Check whether ANY known user sanitises to this filename stem
             if safe not in {_safe_name(u) for u in known_users}:
                 log.info("Pruning orphan sudoers file (user removed from rbac): %s", path)
                 remove_sudoers_file(path, dry_run)
@@ -319,8 +353,7 @@ def prune_orphan_sudoers(
 
 # ---------------------------------------------------------------------------
 # Group sync
-# Future feature - build hierarchical group system
-# Add a UI to graphically displays groups
+# Future feature: build hierarchical group system, add UI to display groups
 # ---------------------------------------------------------------------------
 
 def sync_group(group: dict, dry_run: bool) -> None:
@@ -357,7 +390,7 @@ def sync_user(user: dict, dry_run: bool) -> None:
     home = user.get("home_directory", f"{DEFAULT_HOME_BASE}/{uid}")
     shell = user.get("shell", DEFAULT_SHELL)
     password_hash = user.get("password_hash")
-    comment = cn  # stored in the GECOS field
+    comment = cn  # stored in GECOS field
 
     if not user_exists(uid):
         log.info("Creating user: %s", uid)
@@ -374,12 +407,9 @@ def sync_user(user: dict, dry_run: bool) -> None:
     else:
         info = get_user_info(uid)
         if info is None:
-            log.error(
-                "Could not read info for existing user '%s' — skipping update.", uid
-            )
+            log.error("Could not read info for existing user '%s' — skipping update.", uid)
         else:
             changes: List[str] = []
-
             if uid_number is not None and info.pw_uid != uid_number:
                 changes += ["--uid", str(uid_number)]
             if gid_number is not None and info.pw_gid != gid_number:
@@ -397,12 +427,8 @@ def sync_user(user: dict, dry_run: bool) -> None:
             else:
                 log.debug("User '%s' attributes already up to date.", uid)
 
-            # NOTE I went back and forth on the pasword feature and opted to put it in
-            # If I decide not to use it, nothing happens - but it was no extra
-            # effort to add it, so I wanted it
-            # Only update the password if a hash is explicitly provided.
-            # We compare against the shadow entry; if unreadable we set it
-            # to be safe (requires root).
+            # NOTE: password update is optional — if no hash is provided nothing
+            # happens. Kept in because it costs nothing when unused.
             if password_hash:
                 _sync_password(uid, password_hash, dry_run)
 
@@ -428,12 +454,10 @@ def _sync_password(uid: str, desired_hash: str, dry_run: bool) -> None:
 
 def sync_user_groups(uid: str, desired_groups: Set[str], dry_run: bool) -> None:
     """
-    Reconcile supplementary group membership so it matches desired_groups exactly.
-    Groups in desired_groups that the user is not yet in are added.
-    Groups the user is in that are not in desired_groups are removed.
+    Reconcile supplementary group membership so it exactly matches desired_groups.
+    Adds missing groups, removes extra ones.
     """
     current_groups = get_user_supplementary_groups(uid)
-
     to_add = desired_groups - current_groups
     to_remove = current_groups - desired_groups
 
@@ -451,38 +475,44 @@ def sync_user_groups(uid: str, desired_groups: Set[str], dry_run: bool) -> None:
         run(["gpasswd", "--delete", uid, g], dry_run)
 
 
-# Groups that confer sudo/admin access on the local system.
-# Users who are not in the Manager group must never be members of these.
-PRIVILEGED_SYSTEM_GROUPS = {"sudo", "wheel", "admin"}
+# ---------------------------------------------------------------------------
+# Privileged group stripping
+# Rules sourced from posix_rules.json sudo_controls section.
+# ---------------------------------------------------------------------------
 
-# RBAC groups that must never have privileged system group membership.
-NO_SUDO_RBAC_GROUPS = {"Employee", "Board"}
-
-
-def strip_privileged_groups(users: list, dry_run: bool) -> None:
+def strip_privileged_groups(users: list, sudo_controls: Dict, dry_run: bool) -> None:
     """
-    Forcibly remove Employee-only and Board-only users from any system group
-    that grants sudo access (sudo, wheel, admin).
+    Forcibly remove users in no-sudo RBAC groups from any system group that
+    grants sudo access (sudo, wheel, admin).
 
-    This is the authoritative sudo block for these roles. sudoers drop-in
-    files using !ALL are ineffective because they cannot override a grant
-    that comes from group membership in /etc/sudoers or PAM. Removing the
-    user from the privileged group at the OS level is the correct control.
+    This is the authoritative sudo block. sudoers !ALL drop-in files are
+    ineffective because they cannot override group membership grants.
+    Removing the user from the privileged group at OS level is the fix.
 
     Runs after sync_user() so it overrides any accidental additions.
+    Rules (which groups are privileged, which RBAC groups are no-sudo)
+    are loaded from posix_rules.json — not hardcoded here.
     """
+    privileged_system_groups = set(sudo_controls.get("privileged_system_groups", []))
+    no_sudo_rbac_groups = set(sudo_controls.get("no_sudo_rbac_groups", []))
+
+    log.info("── Stripping privileged group membership from no-sudo users ──")
+
     for user in users:
         uid = user["uid"]
         user_rbac_groups = set(user.get("groups", []))
 
-        # Only act on users whose RBAC groups are entirely within NO_SUDO_RBAC_GROUPS
-        # i.e. they are not a Manager (which legitimately needs sudo).
-        if user_rbac_groups - NO_SUDO_RBAC_GROUPS:
-            # User has at least one non-restricted RBAC group (e.g. Manager) — skip.
+        # Skip users who have at least one RBAC group outside the no-sudo set
+        # (e.g. Manager — they legitimately need sudo).
+        if user_rbac_groups - no_sudo_rbac_groups:
+            log.debug(
+                "User '%s' has non-restricted RBAC group membership — skipping strip.",
+                uid,
+            )
             continue
 
         current_groups = get_user_supplementary_groups(uid)
-        to_strip = current_groups & PRIVILEGED_SYSTEM_GROUPS
+        to_strip = current_groups & privileged_system_groups
 
         if to_strip:
             for g in sorted(to_strip):
@@ -493,9 +523,7 @@ def strip_privileged_groups(users: list, dry_run: bool) -> None:
                 )
                 run(["gpasswd", "--delete", uid, g], dry_run)
         else:
-            log.debug(
-                "User '%s' has no privileged system group membership — OK.", uid
-            )
+            log.debug("User '%s' has no privileged system group membership — OK.", uid)
 
 
 # ---------------------------------------------------------------------------
@@ -504,69 +532,33 @@ def strip_privileged_groups(users: list, dry_run: bool) -> None:
 # deny_employee, deny_manager, deny_board are Linux groups used as a
 # revocation mechanism. Adding a user to one of these groups causes
 # rbac_sync.py to write a named-user ACL entry (user:<uid>:---) on every
-# folder in that group's scope, blocking access unconditionally.
+# folder in that group's scope.
 #
 # WHY NAMED-USER — NOT GROUP — ENTRIES:
 # POSIX ACL group deny entries cannot override a positive grant from another
-# group the same user belongs to. Linux OR's all matching group ACL entries,
-# so group:deny_employee:--- loses to group:Employee:rwx if the user is in
-# both groups. Named-user entries (user:<uid>:---) are evaluated first in
-# the ACL chain and override all group entries unconditionally, making them
-# the only reliable way to deny a specific user who also holds a group grant.
+# group the user belongs to. Linux OR's all matching group ACL entries, so
+# group:deny_employee:--- loses to group:Employee:rwx when the user is in
+# both. Named-user entries (user:<uid>:---) are evaluated first in the ACL
+# chain and override all group entries unconditionally.
 #
-# Usage: add the user to the deny group, then re-run rbac_sync.py.
+# Deny group → folder path mappings are loaded from posix_rules.json.
 # ---------------------------------------------------------------------------
 
-# Base path — must match BASE_DIR in rbac_fs.py
-_FS_BASE = Path("/srv/saffell-soft")
-
-# (deny_group_name, list of folder paths relative to _FS_BASE)
-DENY_GROUP_FOLDERS = {
-    "deny_employee": [
-        "employee",            # parent dir — blocks listing and traversal
-        "employee/shared",
-        "employee/projects",
-    ],
-    "deny_manager": [
-        "manager",             # parent dir — blocks traversal entirely
-        "manager/shared",
-        "manager/reports",
-    ],
-    "deny_board": [
-        "board",               # parent dir — blocks traversal entirely
-        "board/workspace",
-    ],
-}
-
-
 def _setfacl_available() -> bool:
-    """Return True if setfacl is installed on this system."""
     result = subprocess.run(["which", "setfacl"], capture_output=True, text=True)
     return result.returncode == 0
 
 
-def provision_deny_acls(dry_run: bool) -> None:
+def provision_deny_acls(rules: Dict, dry_run: bool) -> None:
     """
-    Apply named-user setfacl deny entries for members of deny_employee,
-    deny_manager, and deny_board on their respective folder trees.
+    Apply named-user setfacl deny entries for members of each deny group.
+    Paths and group names are loaded from posix_rules.json deny_groups section.
 
-    WHY NAMED-USER ENTRIES:
-    POSIX ACL group deny entries (group:deny_X:---) cannot override a
-    positive grant from another group the user belongs to. Linux OR's all
-    matching group ACL entries — if Employee:rwx and deny_employee:--- both
-    match, the rwx wins. Named-user entries (user:<uid>:---) are evaluated
-    FIRST in the ACL chain and override all group entries unconditionally.
-    This is the only reliable way to deny access to a user who is also a
-    member of a group with a positive grant on the same path.
-
-    For each deny group this function:
-      1. Resolves current members of the deny group via getent.
-      2. For each member, writes user:<uid>:--- and default:user:<uid>:---
-         on every folder in the deny group's scope.
-      3. Also writes the group:deny_X:--- entry as an audit marker so
-         getfacl output makes the intent visible.
-
-    Skips gracefully if setfacl is not installed or paths do not exist.
+    For each deny group:
+      1. Resolves current members via getent.
+      2. Writes group:<deny_group>:--- as an audit marker.
+      3. Writes user:<uid>:--- and default:user:<uid>:--- for each member —
+         these are the entries that actually enforce the block.
     """
     if not _setfacl_available():
         log.warning(
@@ -575,9 +567,15 @@ def provision_deny_acls(dry_run: bool) -> None:
         )
         return
 
+    base_dir = Path(rules["base_dir"])
+    deny_groups: Dict = rules.get("deny_groups", {})
+
     log.info("── Provisioning deny ACLs (named-user entries) ──")
 
-    for deny_group, rel_paths in DENY_GROUP_FOLDERS.items():
+    for deny_group, rel_paths in deny_groups.items():
+        # Skip comment keys
+        if deny_group.startswith("_"):
+            continue
 
         if not group_exists(deny_group):
             log.warning(
@@ -587,59 +585,40 @@ def provision_deny_acls(dry_run: bool) -> None:
             )
             continue
 
-        # Resolve current members of this deny group
         members = _get_group_members(deny_group)
         if not members:
             log.debug("Deny group '%s' has no members — nothing to deny.", deny_group)
 
         for rel_path in rel_paths:
-            target = _FS_BASE / rel_path
+            target = base_dir / rel_path
 
             if not target.exists():
                 log.warning(
                     "Path does not exist, skipping deny ACL for '%s': %s "
-                    "(run rbac_fs.py first)",
+                    "(run rbac_fs.py first to create the folder structure)",
                     deny_group, target,
                 )
                 continue
 
-            # Write the group marker entry for auditability
+            # Group audit marker — makes getfacl output self-documenting
             for group_entry in [
                 f"group:{deny_group}:---",
                 f"default:group:{deny_group}:---",
             ]:
-                log.debug("setfacl -m %s %s", group_entry, target)
+                log.debug("setfacl -m %s %s  [audit marker]", group_entry, target)
                 run(["setfacl", "-m", group_entry, str(target)], dry_run)
 
-            # Write named-user deny for each member — this is the entry
-            # that actually enforces the block regardless of other groups
+            # Named-user deny — this is what actually enforces the block
             for uid in sorted(members):
                 for user_entry in [
                     f"user:{uid}:---",
                     f"default:user:{uid}:---",
                 ]:
-                    log.info("setfacl -m %s %s  [deny_group=%s]",
-                             user_entry, target, deny_group)
+                    log.info(
+                        "setfacl -m %s %s  [deny_group=%s]",
+                        user_entry, target, deny_group,
+                    )
                     run(["setfacl", "-m", user_entry, str(target)], dry_run)
-
-
-def _get_group_members(group_name: str) -> Set[str]:
-    """
-    Return the set of usernames that are members of group_name.
-    Reads from NSS via getent so LDAP-backed groups are also resolved.
-    Returns an empty set if the group does not exist or has no members.
-    """
-    result = subprocess.run(
-        ["getent", "group", group_name],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        return set()
-    # getent group format: name:password:gid:member1,member2,...
-    parts = result.stdout.strip().split(":")
-    if len(parts) < 4 or not parts[3]:
-        return set()
-    return set(parts[3].split(","))
 
 
 # ---------------------------------------------------------------------------
@@ -712,20 +691,12 @@ def validate_config(config: dict) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
-# Config loader - Additional testing needed here to confirm statefulness
+# Config loader
+# Additional testing needed here to confirm statefulness
 # ---------------------------------------------------------------------------
 
 def load_config(path: str) -> dict:
-    config_path = Path(path)
-    if not config_path.exists():
-        log.error("Config file not found: %s", path)
-        sys.exit(1)
-    with config_path.open(encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except json.JSONDecodeError as exc:
-            log.error("Invalid JSON in %s: %s", path, exc)
-            sys.exit(1)
+    return load_json(path, "Config")
 
 
 def check_root() -> None:
@@ -748,6 +719,11 @@ def main() -> None:
         help="Path to the rbac.json config file (default: rbac.json)",
     )
     parser.add_argument(
+        "--rules",
+        default="posix_rules.json",
+        help="Path to the posix_rules.json file (default: posix_rules.json)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print what would be done without making any changes.",
@@ -767,6 +743,8 @@ def main() -> None:
         check_root()
 
     config = load_config(args.config)
+    rules = load_json(args.rules, "POSIX rules")
+    validate_posix_rules(rules)
 
     errors = validate_config(config)
     if errors:
@@ -777,6 +755,7 @@ def main() -> None:
 
     groups = config.get("groups", [])
     users = config.get("users", [])
+    sudo_controls = rules.get("sudo_controls", {})
 
     log.info("Syncing %d group(s) and %d user(s)...", len(groups), len(users))
 
@@ -788,13 +767,14 @@ def main() -> None:
     for user in users:
         sync_user(user, args.dry_run)
 
-    # 3. Strip sudo/wheel/admin group membership from Employee and Board users.
-    #    This is the authoritative sudo block — sudoers drop-in !ALL rules
-    #    cannot override group-based grants and are not used here.
-    strip_privileged_groups(users, args.dry_run)
+    # 3. Strip sudo/wheel/admin membership from no-sudo RBAC users.
+    #    Rules (which groups are privileged, which are no-sudo) come from
+    #    posix_rules.json sudo_controls — not hardcoded.
+    strip_privileged_groups(users, sudo_controls, args.dry_run)
 
-    # 4. Apply setfacl deny entries for deny_employee, deny_manager, deny_board.
-    provision_deny_acls(args.dry_run)
+    # 4. Apply named-user ACL deny entries for deny group members.
+    #    Deny group → folder path mappings come from posix_rules.json.
+    provision_deny_acls(rules, args.dry_run)
 
     # 5. Clean up orphaned sudoers files for names removed from rbac.json
     prune_orphan_sudoers(

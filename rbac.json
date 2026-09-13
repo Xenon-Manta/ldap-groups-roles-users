@@ -1,5 +1,5 @@
 {
-  "ldap_base": "dc=example,dc=com",
+  "ldap_base": "dc=saffell-soft,dc=com",
   "groups": [
     {
       "name": "Employee",
@@ -37,6 +37,12 @@
       "name": "deny_board",
       "gid": 3903,
       "description": "Explicit ACL deny group for board folders — members are denied all access to /srv/saffell-soft/board and subfolders",
+      "sudo_rules": []
+    },
+    {
+      "name": "3PAO",
+      "gid": 4155,
+      "description": "Third party compliance assessors",
       "sudo_rules": []
     }
   ],
@@ -121,6 +127,19 @@
       "shell": "/bin/bash",
       "password_hash": "",
       "groups": ["Board"],
+      "sudo_rules": []
+    },
+    {
+      "uid": "dinspector",
+      "common_name": "Derek Inspector",
+      "surname": "Inspector",
+      "email": "derek@assessors-r-us.com",
+      "uid_number": 10007,
+      "gid_number": 8115,
+      "home_directory": "/home/rsaffell",
+      "shell": "/bin/bash",
+      "password_hash": "",
+      "groups": ["3PAO"],
       "sudo_rules": []
     }
   ]

@@ -2,216 +2,39 @@
 """
 rbac_fs.py — Filesystem structure and access control provisioner for Saffell-Soft.
 
-Creates and enforces shared folder structures and access controls for the
-Employee, Manager, and Board LDAP/local groups defined in rbac.json.
+Reads posix_rules.json and provisions:
+  - Parent directory structure with correct ownership and modes.
+  - Shared subfolders with setgid and group ownership.
+  - POSIX ACLs via setfacl for cross-group access grants and deny markers.
+  - Cleanup of stale sudoers drop-in files from previous script versions.
 
-Folder layout
-─────────────
-/srv/saffell-soft/
-├── employee/
-│   ├── shared/       Employee rw  |  Manager rw  |  Board r
-│   └── projects/     Employee rw  |  Manager rw  |  Board r
-├── manager/
-│   ├── shared/       Manager rw   |  Board r
-│   └── reports/      Manager rw   |  Board r
-└── board/
-    └── workspace/    Board rw
-
-Access model
-────────────
-  Employee  — read/write own folders (employee/shared, employee/projects).
-              NO sudo — rbac_sync.py removes membership from sudo/wheel/admin.
-              NO access to manager/ subfolders — explicit group:Employee:---
-              ACL deny entries on each manager subfolder block access.
-              NO access to board/ — parent dir is mode 0o750 owned by Board;
-              Employee members are "others" and receive ---.
-  Manager   — read/write employee + manager folders; read board: NO access.
-              Sudo: near-full admin (ALL=(ALL) ALL) — already set by rbac_sync.py.
-  Board     — read-only on employee + manager folders; read/write board folder.
-              NO sudo — rbac_sync.py removes membership from sudo/wheel/admin.
-              employee/ parent is world-traversable (0o755); manager/ parent is
-              0o750 group=Manager but Board gets r-x via ACL on the parent dir.
-              Access to board/workspace is via direct group membership (chmod 2770).
-
-Implementation
-──────────────
-  • POSIX permissions + setgid bit keep new files group-owned.
-  • POSIX ACLs (setfacl) layer cross-group read grants.
-  • rbac_sync.py strip_privileged_groups() removes Employee/Board from sudo/wheel/admin.
+All POSIX rules (folder layout, modes, ACL entries) are defined in
+posix_rules.json — do not hardcode rules in this script.
 
 Must be run as root.
 
 Usage:
-    sudo python3 rbac_fs.py [--dry-run] [--verbose]
+    sudo python3 rbac_fs.py [--rules posix_rules.json] [--dry-run] [--verbose]
 
-Dependencies: Python 3.8+, acl package (setfacl/getfacl), standard library only.
+Dependencies: Python 3.8+, acl package (setfacl), standard library only.
+
+Open Features for Development:
+ 1. Add a React UI to manage groups and roles
+ 2. Encrypt and lock rbac.json / posix_rules.json
+ 3. Automatically escalate to sudo on run
+ 4. Add a switch for remote LDAP management using OpenLDAP
 
 -Rob Saffell
 """
 
 import argparse
+import json
 import logging
 import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import List
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-BASE_DIR = Path("/srv/saffell-soft")
-
-# (path_relative_to_BASE_DIR, owning_group, dir_mode)
-#
-# Mode 2770 = setgid + rwxrws---  owning group: full read/write, others: none
-# Mode 2750 = setgid + rwxr-s---  owning group: read-only,       others: none
-#
-# Parent directories (employee/, manager/, board/) use mode 0o710:
-#   - root can traverse
-#   - owning group can traverse (x bit) but cannot list contents (no r)
-#   - others: no access at all
-# This prevents Employee members from even traversing into manager/ or board/.
-FOLDER_SPEC = [
-    # Employee folders — group: Employee, full rw
-    ("employee/shared",    "Employee", 0o2770),
-    ("employee/projects",  "Employee", 0o2770),
-    # Manager folders — group: Manager, full rw; Employee has no entry here
-    ("manager/shared",     "Manager",  0o2770),
-    ("manager/reports",    "Manager",  0o2770),
-    # Board folder — group: Board, full rw; Employee has no entry here
-    ("board/workspace",    "Board",    0o2770),
-]
-
-# Parent directory modes: (relative_path, owning_group, mode)
-#
-# employee/ is root:root 0o755 — world-traversable so Board can reach its
-# subfolders where ACLs grant them read access.
-#
-# manager/ is root:Manager 0o750 — only Manager group members and root can
-# traverse into it. Employee members are "others" and get --- at this level,
-# blocking them before they can reach any subfolder. Board is granted r-x on
-# this dir via a setfacl ACL entry (see ACL_SPEC) so they can traverse in
-# to reach the subfolders where they have read access.
-#
-# board/ is root:Board 0o750 — only Board members and root can traverse.
-PARENT_SPEC = [
-    ("employee", "root",    0o755),
-    ("manager",  "Manager", 0o750),
-    ("board",    "Board",   0o750),
-]
-
-# ACL entries to layer on top of POSIX permissions.
-# Format: (path_relative_to_BASE_DIR, acl_entry)
-# 'default:' entries ensure newly created files/subdirs inherit the ACL.
-#
-# Employee is NOT granted any ACL entry on manager/ or board/ folders.
-# Those parent dirs are owned by their respective groups with mode 0o750,
-# so Employee members (who are in "others") get --- and cannot traverse in.
-ACL_SPEC = [
-    # -----------------------------------------------------------------------
-    # employee/ parent directory ACL
-    # employee/ is root:root 0o755 so anyone can traverse in by default.
-    # deny_employee members get a named-user --- applied by rbac_sync.py,
-    # but we also set the group marker here so getfacl is self-documenting.
-    # -----------------------------------------------------------------------
-    ("employee",          "group:deny_employee:---"),
-
-    # -----------------------------------------------------------------------
-    # Employee folders
-    # default:group:Employee:rwx  — new files/dirs created inside inherit
-    #                               group-write so all Employee members can
-    #                               read and write each other's files.
-    # default:mask::rwx           — ensures the ACL mask doesn't strip the
-    #                               group write bit that the default entries grant.
-    # -----------------------------------------------------------------------
-    ("employee/shared",   "group:Employee:rwx"),
-    ("employee/shared",   "default:group:Employee:rwx"),
-    ("employee/shared",   "default:mask::rwx"),
-    ("employee/projects", "group:Employee:rwx"),
-    ("employee/projects", "default:group:Employee:rwx"),
-    ("employee/projects", "default:mask::rwx"),
-
-    # Manager gets read+write on employee folders via explicit ACL
-    ("employee/shared",   "group:Manager:rwx"),
-    ("employee/shared",   "default:group:Manager:rwx"),
-    ("employee/projects", "group:Manager:rwx"),
-    ("employee/projects", "default:group:Manager:rwx"),
-
-    # Board gets read-only on employee folders
-    ("employee/shared",   "group:Board:r-x"),
-    ("employee/shared",   "default:group:Board:r-x"),
-    ("employee/projects", "group:Board:r-x"),
-    ("employee/projects", "default:group:Board:r-x"),
-
-    # -----------------------------------------------------------------------
-    # manager/ parent directory ACLs
-    # manager/ is root:Manager 0o750 — Employee is blocked as "others".
-    # Board needs r-x on the parent to traverse into subfolders.
-    # deny_manager gets --- on the parent so members cannot traverse in
-    # at all, regardless of any subfolder grants.
-    # -----------------------------------------------------------------------
-    ("manager",           "group:Board:r-x"),
-    ("manager",           "group:deny_manager:---"),
-
-    # -----------------------------------------------------------------------
-    # Manager folders — default ACL so new files are group-writable
-    # -----------------------------------------------------------------------
-    ("manager/shared",    "group:Manager:rwx"),
-    ("manager/shared",    "default:group:Manager:rwx"),
-    ("manager/shared",    "default:mask::rwx"),
-    ("manager/reports",   "group:Manager:rwx"),
-    ("manager/reports",   "default:group:Manager:rwx"),
-    ("manager/reports",   "default:mask::rwx"),
-
-    # Board gets read-only on manager folders
-    ("manager/shared",    "group:Board:r-x"),
-    ("manager/shared",    "default:group:Board:r-x"),
-    ("manager/reports",   "group:Board:r-x"),
-    ("manager/reports",   "default:group:Board:r-x"),
-
-    # -----------------------------------------------------------------------
-    # Board folder — default ACL so new files are group-writable
-    # -----------------------------------------------------------------------
-    ("board/workspace",   "group:Board:rwx"),
-    ("board/workspace",   "default:group:Board:rwx"),
-    ("board/workspace",   "default:mask::rwx"),
-
-    # -----------------------------------------------------------------------
-    # Explicit deny for Employee on manager and board subfolders
-    # Belt-and-suspenders on top of the parent dir mode 0o750
-    # -----------------------------------------------------------------------
-    ("manager/shared",    "group:Employee:---"),
-    ("manager/shared",    "default:group:Employee:---"),
-    ("manager/reports",   "group:Employee:---"),
-    ("manager/reports",   "default:group:Employee:---"),
-    ("board/workspace",   "group:Employee:---"),
-    ("board/workspace",   "default:group:Employee:---"),
-]
-
-# ---------------------------------------------------------------------------
-# Sudoers hardening — deny sudo for Employee and Board entirely
-#
-# The authoritative sudo block for Employee and Board is in rbac_sync.py,
-# which calls strip_privileged_groups() to remove those users from the
-# 'sudo', 'wheel', and 'admin' system groups after every sync.
-#
-# NOTE: sudoers drop-in files using '!ALL' are NOT used here. The !ALL
-# operator only negates a grant within the same rule — it cannot block
-# access that comes from group membership in /etc/sudoers or PAM.
-# Removing users from privileged system groups is the correct control.
-# ---------------------------------------------------------------------------
-
-SUDOERS_DIR = Path("/etc/sudoers.d")
-
-# Drop-in files written by previous versions of this script that used the
-# ineffective !ALL approach. These are cleaned up on every run.
-STALE_SUDOERS_FILES = [
-    "00_rbac_deny_employee",
-    "00_rbac_deny_board",
-    "rbac_fs_employee",
-]
+from typing import Dict, List
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -229,19 +52,46 @@ def setup_logging(verbose: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Safe command runner (mirrors pattern in rbac_sync.py)
+# Rules loader
 # ---------------------------------------------------------------------------
 
-def run(cmd: List[str], dry_run: bool = False, capture: bool = False) -> subprocess.CompletedProcess:
+def load_rules(path: str) -> Dict:
+    rules_path = Path(path)
+    if not rules_path.exists():
+        log.error("Rules file not found: %s", path)
+        sys.exit(1)
+    with rules_path.open(encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError as exc:
+            log.error("Invalid JSON in %s: %s", path, exc)
+            sys.exit(1)
+
+
+def validate_rules(rules: Dict) -> None:
+    """Abort early if required top-level keys are missing."""
+    required = ["base_dir", "parent_dirs", "folders", "acls",
+                "deny_groups", "sudo_controls"]
+    missing = [k for k in required if k not in rules]
+    if missing:
+        log.error("posix_rules.json is missing required keys: %s", missing)
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Safe command runner
+# ---------------------------------------------------------------------------
+
+def run(cmd: List[str], dry_run: bool = False) -> subprocess.CompletedProcess:
     safe_cmd = " ".join(cmd)
     log.debug("CMD: %s", safe_cmd)
     if dry_run:
         log.info("[dry-run] would run: %s", safe_cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-    result = subprocess.run(cmd, capture_output=capture, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         log.error("Command failed (exit %d): %s", result.returncode, safe_cmd)
-        if capture and result.stderr:
+        if result.stderr:
             log.error("stderr: %s", result.stderr.strip())
     return result
 
@@ -257,10 +107,7 @@ def check_root() -> None:
 
 
 def check_setfacl_available() -> bool:
-    """Return True if setfacl is available on this system."""
-    result = subprocess.run(
-        ["which", "setfacl"], capture_output=True, text=True
-    )
+    result = subprocess.run(["which", "setfacl"], capture_output=True, text=True)
     return result.returncode == 0
 
 
@@ -271,8 +118,15 @@ def group_exists(name: str) -> bool:
     return result.returncode == 0
 
 
-def warn_missing_groups() -> None:
-    for group in ["Employee", "Manager", "Board"]:
+def warn_missing_groups(rules: Dict) -> None:
+    """Warn if any group referenced in rules does not exist on the system."""
+    referenced = set()
+    for folder in rules.get("folders", []):
+        referenced.add(folder["group"])
+    for parent in rules.get("parent_dirs", []):
+        if parent["group"] != "root":
+            referenced.add(parent["group"])
+    for group in sorted(referenced):
         if not group_exists(group):
             log.warning(
                 "Group '%s' does not exist on this system. "
@@ -282,112 +136,109 @@ def warn_missing_groups() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Folder creation and ownership
+# Folder provisioning
 # ---------------------------------------------------------------------------
 
-def provision_folder(
-    rel_path: str,
-    group: str,
-    mode: int,
-    dry_run: bool,
-) -> None:
-    """Create a folder, set group ownership and permissions."""
-    path = BASE_DIR / rel_path
-
-    if not path.exists():
-        log.info("Creating directory: %s", path)
+def provision_base_dir(base_dir: Path, dry_run: bool) -> None:
+    if not base_dir.exists():
+        log.info("Creating base directory: %s", base_dir)
         if not dry_run:
-            path.mkdir(parents=True, exist_ok=True)
-    else:
-        log.debug("Directory already exists: %s", path)
-
-    # Owner = root, group = owning group
-    log.info("Setting ownership root:%s on %s", group, path)
-    run(["chown", f"root:{group}", str(path)], dry_run)
-
-    # Set mode (includes setgid bit).
-    # oct() produces '0o2770' — strip the '0o' prefix so chmod sees '2770'.
-    octal_str = oct(mode)[2:]
-    log.info("Setting mode %s on %s", octal_str, path)
-    run(["chmod", octal_str, str(path)], dry_run)
+            base_dir.mkdir(parents=True, exist_ok=True)
+    run(["chown", "root:root", str(base_dir)], dry_run)
+    run(["chmod", "755", str(base_dir)], dry_run)
 
 
-def provision_all_folders(dry_run: bool) -> None:
-    log.info("── Provisioning folder structure under %s ──", BASE_DIR)
+def provision_parent_dirs(base_dir: Path, parent_dirs: List[Dict], dry_run: bool) -> None:
+    log.info("── Provisioning parent directories ──")
+    for entry in parent_dirs:
+        path = base_dir / entry["path"]
+        owner = entry["owner"]
+        group = entry["group"]
+        mode = entry["mode"]
 
-    # Ensure base dir exists, owned root:root, traversable
-    if not BASE_DIR.exists():
-        log.info("Creating base directory: %s", BASE_DIR)
-        if not dry_run:
-            BASE_DIR.mkdir(parents=True, exist_ok=True)
-    run(["chown", "root:root", str(BASE_DIR)], dry_run)
-    run(["chmod", "755", str(BASE_DIR)], dry_run)
-
-    # Create each group's parent directory with restrictive permissions.
-    # mode 0o750: owning group can traverse; others (incl. Employee on
-    # manager/ and board/) are fully blocked — no listing, no traversal.
-    for rel_parent, group, mode in PARENT_SPEC:
-        parent_path = BASE_DIR / rel_parent
-        if not parent_path.exists():
-            log.info("Creating parent directory: %s", parent_path)
+        if not path.exists():
+            log.info("Creating parent directory: %s", path)
             if not dry_run:
-                parent_path.mkdir(parents=True, exist_ok=True)
-        run(["chown", f"root:{group}", str(parent_path)], dry_run)
-        run(["chmod", oct(mode)[2:], str(parent_path)], dry_run)
+                path.mkdir(parents=True, exist_ok=True)
+        else:
+            log.debug("Parent directory already exists: %s", path)
 
-    for rel_path, group, mode in FOLDER_SPEC:
-        provision_folder(rel_path, group, mode, dry_run)
+        run(["chown", f"{owner}:{group}", str(path)], dry_run)
+        log.info("Set ownership %s:%s on %s", owner, group, path)
+        run(["chmod", mode, str(path)], dry_run)
+        log.info("Set mode %s on %s", mode, path)
+
+
+def provision_folders(base_dir: Path, folders: List[Dict], dry_run: bool) -> None:
+    log.info("── Provisioning shared folders ──")
+    for entry in folders:
+        path = base_dir / entry["path"]
+        owner = entry["owner"]
+        group = entry["group"]
+        mode = entry["mode"]
+
+        if not path.exists():
+            log.info("Creating directory: %s", path)
+            if not dry_run:
+                path.mkdir(parents=True, exist_ok=True)
+        else:
+            log.debug("Directory already exists: %s", path)
+
+        run(["chown", f"{owner}:{group}", str(path)], dry_run)
+        log.info("Set ownership %s:%s on %s", owner, group, path)
+        run(["chmod", mode, str(path)], dry_run)
+        log.info("Set mode %s on %s", mode, path)
 
 
 # ---------------------------------------------------------------------------
 # POSIX ACL provisioning
 # ---------------------------------------------------------------------------
 
-def apply_acl(path: Path, acl_entry: str, dry_run: bool) -> None:
-    """Apply a single setfacl entry to a path."""
-    log.info("setfacl -m %s %s", acl_entry, path)
-    run(["setfacl", "-m", acl_entry, str(path)], dry_run)
-
-
-def provision_all_acls(dry_run: bool) -> None:
+def provision_acls(base_dir: Path, acls: List[Dict], dry_run: bool) -> None:
     log.info("── Applying POSIX ACLs ──")
-    for rel_path, acl_entry in ACL_SPEC:
-        path = BASE_DIR / rel_path
-        if not path.exists() and not dry_run:
-            log.warning("Path does not exist, skipping ACL: %s", path)
-            continue
-        apply_acl(path, acl_entry, dry_run)
+    for entry in acls:
+        path = base_dir / entry["path"]
+        acl_entry = entry["entry"]
+
+        if not path.exists():
+            if not dry_run:
+                log.warning("Path does not exist, skipping ACL (%s): %s", acl_entry, path)
+                continue
+        log.info("setfacl -m %s %s", acl_entry, path)
+        run(["setfacl", "-m", acl_entry, str(path)], dry_run)
 
 
 # ---------------------------------------------------------------------------
-# Sudoers cleanup
+# Sudoers stale file cleanup
 # ---------------------------------------------------------------------------
 
-def provision_sudoers(dry_run: bool) -> None:
+def cleanup_stale_sudoers(sudo_controls: Dict, dry_run: bool) -> None:
     """
-    Remove any stale sudoers drop-in files written by previous versions of
-    this script that used the ineffective !ALL deny approach.
+    Remove stale sudoers drop-in files left by previous script versions
+    that used the ineffective !ALL deny approach.
 
-    Sudo access for Employee and Board is blocked by rbac_sync.py removing
-    those users from the sudo/wheel/admin system groups — not by drop-in files.
+    Sudo access for Employee and Board is enforced by rbac_sync.py removing
+    those users from sudo/wheel/admin system groups — not by drop-in files.
     """
     log.info("── Cleaning up stale sudoers drop-ins ──")
+    sudoers_dir = Path("/etc/sudoers.d")
+    stale_files = sudo_controls.get("stale_sudoers_files", [])
 
-    if not SUDOERS_DIR.exists():
-        log.debug("%s does not exist — skipping sudoers cleanup.", SUDOERS_DIR)
+    if not sudoers_dir.exists():
+        log.debug("%s does not exist — skipping sudoers cleanup.", sudoers_dir)
         return
 
-    for filename in STALE_SUDOERS_FILES:
-        path = SUDOERS_DIR / filename
+    for filename in stale_files:
+        path = sudoers_dir / filename
         if path.exists():
             log.info("Removing stale sudoers file: %s", path)
             if not dry_run:
                 path.unlink()
         else:
-            log.debug("Stale sudoers file not present (already clean): %s", path)
+            log.debug("Already clean — stale file not present: %s", path)
 
     log.info(
-        "Sudo access for Employee and Board is enforced by rbac_sync.py "
+        "Sudo controls for Employee and Board are enforced by rbac_sync.py "
         "(strip_privileged_groups removes sudo/wheel/admin membership)."
     )
 
@@ -396,32 +247,49 @@ def provision_sudoers(dry_run: bool) -> None:
 # Summary report
 # ---------------------------------------------------------------------------
 
-def print_summary(acl_available: bool) -> None:
+def print_summary(rules: Dict, acl_available: bool) -> None:
+    base = rules["base_dir"]
     log.info("")
-    log.info("════════════════════════════════════════════")
-    log.info("  Saffell-Soft filesystem layout summary")
-    log.info("════════════════════════════════════════════")
+    log.info("════════════════════════════════════════════════════════")
+    log.info("  Saffell-Soft filesystem layout  (rules: posix_rules.json)")
+    log.info("════════════════════════════════════════════════════════")
+    log.info("  Base: %s", base)
     log.info("")
-    log.info("  /srv/saffell-soft/")
-    log.info("  ├── employee/")
-    log.info("  │   ├── shared/     Employee:rw  Manager:rw  Board:r  (others: no access)")
-    log.info("  │   └── projects/   Employee:rw  Manager:rw  Board:r  (others: no access)")
-    log.info("  ├── manager/        (mode 750, group=Manager — Employee blocked; Board r-x via ACL; deny_manager:---)")
-    log.info("  │   ├── shared/     Manager:rw              Board:r  (Employee: ---)")
-    log.info("  │   └── reports/    Manager:rw              Board:r  (Employee: ---)")
-    log.info("  └── board/          (mode 750, group=Board   — Employee/Manager blocked at dir level)")
-    log.info("      └── workspace/  Board:rw                         (Employee: ---)")
+
+    log.info("  Parent directories:")
+    for p in rules.get("parent_dirs", []):
+        log.info("    %-20s  owner=%s:%s  mode=%s",
+                 p["path"], p["owner"], p["group"], p["mode"])
+
     log.info("")
+    log.info("  Shared folders:")
+    for f in rules.get("folders", []):
+        log.info("    %-30s  owner=%s:%s  mode=%s",
+                 f["path"], f["owner"], f["group"], f["mode"])
+
+    log.info("")
+    log.info("  ACL entries applied: %d", len(rules.get("acls", [])))
+
+    log.info("")
+    log.info("  Deny groups:")
+    for grp, paths in rules.get("deny_groups", {}).items():
+        if grp.startswith("_"):
+            continue
+        log.info("    %-20s  → %s", grp, ", ".join(paths))
+
+    log.info("")
+    sc = rules.get("sudo_controls", {})
     log.info("  Sudo controls:")
-    log.info("    Employee + Board: removed from sudo/wheel/admin by rbac_sync.py")
-    log.info("    Manager: ALL=(ALL) ALL via rbac_sync.py")
+    log.info("    No-sudo RBAC groups : %s", sc.get("no_sudo_rbac_groups", []))
+    log.info("    Enforced by         : rbac_sync.py strip_privileged_groups()")
+
     log.info("")
     if not acl_available:
         log.warning(
             "  setfacl not found — ACLs were NOT applied. "
-            "Install the 'acl' package and re-run."
+            "Install the 'acl' package: sudo apt install acl"
         )
-    log.info("════════════════════════════════════════════")
+    log.info("════════════════════════════════════════════════════════")
 
 
 # ---------------------------------------------------------------------------
@@ -431,9 +299,14 @@ def print_summary(acl_available: bool) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Provision shared folder structure and access controls "
-            "for Employee, Manager, and Board groups."
+            "Provision shared folder structure and POSIX access controls "
+            "for Saffell-Soft groups, driven by posix_rules.json."
         )
+    )
+    parser.add_argument(
+        "--rules",
+        default="posix_rules.json",
+        help="Path to the posix_rules.json file (default: posix_rules.json)",
     )
     parser.add_argument(
         "--dry-run",
@@ -454,31 +327,39 @@ def main() -> None:
     else:
         check_root()
 
-    # Check for groups; warn but don't abort — folders can be pre-created
-    warn_missing_groups()
+    rules = load_rules(args.rules)
+    validate_rules(rules)
 
-    # Check ACL tooling
+    base_dir = Path(rules["base_dir"])
+
+    warn_missing_groups(rules)
+
     acl_available = check_setfacl_available()
     if not acl_available:
         log.warning(
-            "setfacl not found. Install the 'acl' package to enable POSIX ACLs: "
-            "sudo apt install acl"
+            "setfacl not found. Install the 'acl' package: sudo apt install acl"
         )
 
-    # 1. Create folder structure
-    provision_all_folders(args.dry_run)
+    # 1. Base directory
+    provision_base_dir(base_dir, args.dry_run)
 
-    # 2. Apply POSIX ACLs (cross-group read access)
+    # 2. Parent directories (employee/, manager/, board/)
+    provision_parent_dirs(base_dir, rules["parent_dirs"], args.dry_run)
+
+    # 3. Shared subfolders
+    provision_folders(base_dir, rules["folders"], args.dry_run)
+
+    # 4. POSIX ACLs
     if acl_available:
-        provision_all_acls(args.dry_run)
+        provision_acls(base_dir, rules["acls"], args.dry_run)
     else:
         log.warning("Skipping ACL provisioning — setfacl unavailable.")
 
-    # 3. Write sudoers allowlists
-    provision_sudoers(args.dry_run)
+    # 5. Clean up stale sudoers files from previous script versions
+    cleanup_stale_sudoers(rules["sudo_controls"], args.dry_run)
 
-    # 4. Print layout summary
-    print_summary(acl_available)
+    # 6. Summary
+    print_summary(rules, acl_available)
 
     log.info("Done.")
 

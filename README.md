@@ -1,4 +1,4 @@
-# Saffell-Soft RBAC System
+# Linux Basic RBAC System
 
 A declarative RBAC system for Ubuntu that manages local Linux users, groups, filesystem structure, and POSIX access controls from two JSON configuration files. Run the scripts on any Ubuntu machine to create, update, and fully reconcile users, groups, group memberships, sudo permissions, folder structure, and ACLs.
 

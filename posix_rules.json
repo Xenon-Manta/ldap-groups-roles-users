@@ -1,7 +1,41 @@
 {
-  "_comment": "POSIX filesystem and access control rules for Saffell-Soft. Consumed by rbac_fs.py and rbac_sync.py. Do not edit manually without re-running both scripts.",
+  "_comment": "POSIX filesystem and access control rules for Saffell-Soft. Consumed by rbac_fs.py and rbac_sync.py. Edit this file to change permissions — do not hardcode rules in the scripts.",
 
   "base_dir": "/srv/saffell-soft",
+
+  "_tier_model": {
+    "_comment": "Declarative documentation of the permission inheritance hierarchy. rbac_fs.py and rbac_sync.py implement this via ACL entries — POSIX does not have native inheritance so each tier's access is explicitly granted on the relevant paths.",
+    "tiers": [
+      {
+        "tier": 1,
+        "group": "Employee",
+        "inherits_from": [],
+        "own_paths": ["employee/shared", "employee/projects"],
+        "access": "rw on own_paths"
+      },
+      {
+        "tier": 2,
+        "group": "Manager",
+        "inherits_from": ["Employee"],
+        "own_paths": ["manager/shared", "manager/reports"],
+        "access": "rw on own_paths + all Employee paths (inherited)"
+      },
+      {
+        "tier": 3,
+        "group": "Board",
+        "inherits_from": ["Employee", "Manager"],
+        "own_paths": ["board/workspace"],
+        "access": "rw on own_paths + read Employee paths + read Manager paths (inherited)"
+      }
+    ],
+    "flat_roles": [
+      {
+        "group": "3PAO",
+        "inherits_from": [],
+        "access": "read-only on manager/reports and /var/log only — no saffell-soft folder access beyond that"
+      }
+    ]
+  },
 
   "parent_dirs": [
     {
@@ -9,21 +43,21 @@
       "owner": "root",
       "group": "root",
       "mode": "755",
-      "_comment": "World-traversable so Board can reach employee subfolders where ACLs grant r-x."
+      "_comment": "World-traversable. Manager and Board reach employee subfolders via ACL grants. Employee is blocked from manager/ and board/ at those parent dirs."
     },
     {
       "path": "manager",
       "owner": "root",
       "group": "Manager",
       "mode": "750",
-      "_comment": "Only Manager group and root can traverse. Board gets r-x via ACL entry. Employee is blocked as others."
+      "_comment": "Manager group traverses freely. Board gets r-x via ACL. Employee blocked as others (mode 750). 3PAO gets r-x via ACL to reach manager/reports."
     },
     {
       "path": "board",
       "owner": "root",
       "group": "Board",
       "mode": "750",
-      "_comment": "Only Board group and root can traverse. Employee and Manager have no access."
+      "_comment": "Board group traverses freely. All others blocked as others (mode 750)."
     }
   ],
 
@@ -33,206 +67,193 @@
       "owner": "root",
       "group": "Employee",
       "mode": "2770",
-      "_comment": "setgid + rwxrws--- — Employee full rw; others none. ACLs grant Manager rw and Board r."
+      "_comment": "Tier 1. Employee rw (group owner). Manager rw (tier 2 inherits). Board r (tier 3 inherits). Others: none."
     },
     {
       "path": "employee/projects",
       "owner": "root",
       "group": "Employee",
       "mode": "2770",
-      "_comment": "setgid + rwxrws--- — Employee full rw; others none. ACLs grant Manager rw and Board r."
+      "_comment": "Tier 1. Employee rw (group owner). Manager rw (tier 2 inherits). Board r (tier 3 inherits). Others: none."
     },
     {
       "path": "manager/shared",
       "owner": "root",
       "group": "Manager",
       "mode": "2770",
-      "_comment": "setgid + rwxrws--- — Manager full rw; others none. ACL grants Board r."
+      "_comment": "Tier 2. Manager rw (group owner). Board r (tier 3 inherits). Employee: blocked. Others: none."
     },
     {
       "path": "manager/reports",
       "owner": "root",
       "group": "Manager",
       "mode": "2770",
-      "_comment": "setgid + rwxrws--- — Manager full rw; others none. ACL grants Board r."
+      "_comment": "Tier 2. Manager rw (group owner). Board r (tier 3 inherits). 3PAO r (flat ACL). Employee: blocked. Others: none."
     },
     {
       "path": "board/workspace",
       "owner": "root",
       "group": "Board",
       "mode": "2770",
-      "_comment": "setgid + rwxrws--- — Board full rw via group membership. Employee/Manager have no access."
+      "_comment": "Tier 3. Board rw (group owner). Employee and Manager: blocked. Others: none."
     }
   ],
 
   "acls": [
     {
+      "_comment": "──────────────────────────────────────────────────────────────────",
+      "_section": "employee/ parent — audit marker only, subfolders enforce access",
       "path": "employee",
-      "entry": "group:deny_employee:---",
-      "_comment": "Audit marker — named-user deny entries for deny_employee members are applied by rbac_sync.py."
+      "entry": "group:deny_employee:---"
     },
 
     {
+      "_section": "Tier 1 — employee/shared",
+      "_comment": "Employee rw + default so new files inherit group-write. Mask prevents stripping.",
       "path": "employee/shared",
       "entry": "group:Employee:rwx"
     },
+    { "path": "employee/shared",  "entry": "default:group:Employee:rwx" },
+    { "path": "employee/shared",  "entry": "default:mask::rwx" },
+
     {
+      "_comment": "Tier 2 inherits Tier 1 — Manager rw on employee folders.",
       "path": "employee/shared",
-      "entry": "default:group:Employee:rwx",
-      "_comment": "New files inherit Employee group-write."
+      "entry": "group:Manager:rwx"
     },
+    { "path": "employee/shared",  "entry": "default:group:Manager:rwx" },
+
     {
+      "_comment": "Tier 3 inherits Tier 1 — Board read-only on employee folders.",
       "path": "employee/shared",
-      "entry": "default:mask::rwx",
-      "_comment": "Prevent ACL mask from stripping group-write on inherited entries."
+      "entry": "group:Board:r-x"
     },
+    { "path": "employee/shared",  "entry": "default:group:Board:r-x" },
+
     {
+      "_section": "Tier 1 — employee/projects",
       "path": "employee/projects",
       "entry": "group:Employee:rwx"
     },
-    {
-      "path": "employee/projects",
-      "entry": "default:group:Employee:rwx"
-    },
-    {
-      "path": "employee/projects",
-      "entry": "default:mask::rwx"
-    },
+    { "path": "employee/projects", "entry": "default:group:Employee:rwx" },
+    { "path": "employee/projects", "entry": "default:mask::rwx" },
 
     {
-      "path": "employee/shared",
-      "entry": "group:Manager:rwx",
-      "_comment": "Manager read+write on employee folders."
-    },
-    {
-      "path": "employee/shared",
-      "entry": "default:group:Manager:rwx"
-    },
-    {
+      "_comment": "Tier 2 inherits Tier 1 — Manager rw on employee/projects.",
       "path": "employee/projects",
       "entry": "group:Manager:rwx"
     },
-    {
-      "path": "employee/projects",
-      "entry": "default:group:Manager:rwx"
-    },
+    { "path": "employee/projects", "entry": "default:group:Manager:rwx" },
 
     {
-      "path": "employee/shared",
-      "entry": "group:Board:r-x",
-      "_comment": "Board read-only on employee folders."
-    },
-    {
-      "path": "employee/shared",
-      "entry": "default:group:Board:r-x"
-    },
-    {
+      "_comment": "Tier 3 inherits Tier 1 — Board read-only on employee/projects.",
       "path": "employee/projects",
       "entry": "group:Board:r-x"
     },
-    {
-      "path": "employee/projects",
-      "entry": "default:group:Board:r-x"
-    },
+    { "path": "employee/projects", "entry": "default:group:Board:r-x" },
 
     {
+      "_section": "manager/ parent — Board and 3PAO traversal grants, deny_manager audit marker",
+      "_comment": "Board needs r-x on manager/ parent to traverse into subfolders (Tier 3 inherits Tier 2).",
       "path": "manager",
-      "entry": "group:Board:r-x",
-      "_comment": "Board needs r-x on manager/ parent to traverse into subfolders."
-    },
-    {
-      "path": "manager",
-      "entry": "group:deny_manager:---",
-      "_comment": "Audit marker — named-user deny entries for deny_manager members applied by rbac_sync.py."
-    },
-
-    {
-      "path": "manager/shared",
-      "entry": "group:Manager:rwx"
-    },
-    {
-      "path": "manager/shared",
-      "entry": "default:group:Manager:rwx"
-    },
-    {
-      "path": "manager/shared",
-      "entry": "default:mask::rwx"
-    },
-    {
-      "path": "manager/reports",
-      "entry": "group:Manager:rwx"
-    },
-    {
-      "path": "manager/reports",
-      "entry": "default:group:Manager:rwx"
-    },
-    {
-      "path": "manager/reports",
-      "entry": "default:mask::rwx"
-    },
-
-    {
-      "path": "manager/shared",
-      "entry": "group:Board:r-x",
-      "_comment": "Board read-only on manager subfolders."
-    },
-    {
-      "path": "manager/shared",
-      "entry": "default:group:Board:r-x"
-    },
-    {
-      "path": "manager/reports",
       "entry": "group:Board:r-x"
     },
     {
+      "_comment": "3PAO needs r-x on manager/ parent to reach manager/reports.",
+      "path": "manager",
+      "entry": "group:3PAO:r-x"
+    },
+    {
+      "_comment": "Audit marker for deny_manager — named-user denies applied by rbac_sync.py.",
+      "path": "manager",
+      "entry": "group:deny_manager:---"
+    },
+
+    {
+      "_section": "Tier 2 — manager/shared",
+      "_comment": "Manager rw + default. Mask prevents stripping.",
+      "path": "manager/shared",
+      "entry": "group:Manager:rwx"
+    },
+    { "path": "manager/shared",   "entry": "default:group:Manager:rwx" },
+    { "path": "manager/shared",   "entry": "default:mask::rwx" },
+
+    {
+      "_comment": "Tier 3 inherits Tier 2 — Board read-only on manager/shared.",
+      "path": "manager/shared",
+      "entry": "group:Board:r-x"
+    },
+    { "path": "manager/shared",   "entry": "default:group:Board:r-x" },
+
+    {
+      "_comment": "Belt-and-suspenders — Employee explicitly denied on manager/shared.",
+      "path": "manager/shared",
+      "entry": "group:Employee:---"
+    },
+    { "path": "manager/shared",   "entry": "default:group:Employee:---" },
+
+    {
+      "_section": "Tier 2 — manager/reports",
+      "_comment": "Manager rw + default. Mask prevents stripping.",
       "path": "manager/reports",
-      "entry": "default:group:Board:r-x"
+      "entry": "group:Manager:rwx"
     },
+    { "path": "manager/reports",  "entry": "default:group:Manager:rwx" },
+    { "path": "manager/reports",  "entry": "default:mask::rwx" },
 
     {
-      "path": "board/workspace",
-      "entry": "group:Board:rwx",
-      "_comment": "Board full rw on board/workspace."
+      "_comment": "Tier 3 inherits Tier 2 — Board read-only on manager/reports.",
+      "path": "manager/reports",
+      "entry": "group:Board:r-x"
     },
-    {
-      "path": "board/workspace",
-      "entry": "default:group:Board:rwx"
-    },
-    {
-      "path": "board/workspace",
-      "entry": "default:mask::rwx"
-    },
+    { "path": "manager/reports",  "entry": "default:group:Board:r-x" },
 
     {
-      "path": "manager/shared",
-      "entry": "group:Employee:---",
-      "_comment": "Belt-and-suspenders deny for Employee on manager subfolders."
+      "_comment": "3PAO flat read on manager/reports — no inheritance, no write.",
+      "path": "manager/reports",
+      "entry": "group:3PAO:r-x"
     },
+    { "path": "manager/reports",  "entry": "default:group:3PAO:r-x" },
+
     {
-      "path": "manager/shared",
-      "entry": "default:group:Employee:---"
-    },
-    {
+      "_comment": "Belt-and-suspenders — Employee explicitly denied on manager/reports.",
       "path": "manager/reports",
       "entry": "group:Employee:---"
     },
+    { "path": "manager/reports",  "entry": "default:group:Employee:---" },
+
     {
-      "path": "manager/reports",
-      "entry": "default:group:Employee:---"
+      "_section": "Tier 3 — board/workspace",
+      "_comment": "Board rw + default. Mask prevents stripping.",
+      "path": "board/workspace",
+      "entry": "group:Board:rwx"
+    },
+    { "path": "board/workspace",  "entry": "default:group:Board:rwx" },
+    { "path": "board/workspace",  "entry": "default:mask::rwx" },
+
+    {
+      "_comment": "Belt-and-suspenders — Employee explicitly denied on board/workspace.",
+      "path": "board/workspace",
+      "entry": "group:Employee:---"
+    },
+    { "path": "board/workspace",  "entry": "default:group:Employee:---" }
+  ],
+
+  "external_acls": [
+    {
+      "_comment": "ACL entries on paths outside base_dir. Applied by rbac_fs.py separately from the main acls list. /var/log is managed by the OS — we only add read grants, never change ownership or mode.",
+      "path": "/var/log",
+      "entry": "group:3PAO:r-x",
+      "_reason": "3PAO flat read on system logs for compliance assessment."
     },
     {
-      "path": "board/workspace",
-      "entry": "group:Employee:---",
-      "_comment": "Belt-and-suspenders deny for Employee on board subfolder."
-    },
-    {
-      "path": "board/workspace",
-      "entry": "default:group:Employee:---"
+      "path": "/var/log",
+      "entry": "default:group:3PAO:r-x"
     }
   ],
 
   "deny_groups": {
-    "_comment": "Maps deny group names to the folder paths they block. rbac_sync.py resolves current members of each deny group and applies named-user ACL deny entries (user:<uid>:---) on each path. Named-user entries are used because POSIX group deny ACLs cannot override a positive grant from another group the user belongs to.",
+    "_comment": "Maps deny group names to the folder paths they block. rbac_sync.py resolves current members and applies named-user ACL deny entries (user:<uid>:---). Named-user entries are used because POSIX group deny ACLs cannot override a positive grant from another group the same user belongs to.",
     "deny_employee": [
       "employee",
       "employee/shared",
@@ -246,13 +267,16 @@
     "deny_board": [
       "board",
       "board/workspace"
+    ],
+    "deny_3PAO": [
+      "manager/reports"
     ]
   },
 
   "sudo_controls": {
-    "_comment": "Sudo access policy. Enforced by rbac_sync.py via OS group membership, not sudoers drop-in files.",
+    "_comment": "Sudo access policy. Enforced by rbac_sync.py via OS group membership removal, not sudoers drop-in files. !ALL drop-ins are ineffective against group-based grants.",
     "privileged_system_groups": ["sudo", "wheel", "admin"],
-    "no_sudo_rbac_groups": ["Employee", "Board"],
+    "no_sudo_rbac_groups": ["Employee", "Board", "3PAO"],
     "stale_sudoers_files": [
       "00_rbac_deny_employee",
       "00_rbac_deny_board",

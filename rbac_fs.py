@@ -6,7 +6,14 @@ Reads posix_rules.json and provisions:
   - Parent directory structure with correct ownership and modes.
   - Shared subfolders with setgid and group ownership.
   - POSIX ACLs via setfacl for cross-group access grants and deny markers.
+  - External ACLs on paths outside base_dir (e.g. /var/log for 3PAO read access).
   - Cleanup of stale sudoers drop-in files from previous script versions.
+
+Permission model (from posix_rules.json _tier_model):
+  Tier 1 — Employee  : rw on employee/shared, employee/projects
+  Tier 2 — Manager   : inherits Tier 1 + rw on manager/shared, manager/reports
+  Tier 3 — Board     : inherits Tier 1+2 + rw on board/workspace
+  Flat   — 3PAO      : read-only on manager/reports and /var/log only (no inheritance)
 
 All POSIX rules (folder layout, modes, ACL entries) are defined in
 posix_rules.json — do not hardcode rules in this script.
@@ -76,6 +83,13 @@ def validate_rules(rules: Dict) -> None:
     if missing:
         log.error("posix_rules.json is missing required keys: %s", missing)
         sys.exit(1)
+    # external_acls is optional — warn if absent so operators know 3PAO
+    # /var/log access will not be provisioned.
+    if "external_acls" not in rules:
+        log.warning(
+            "posix_rules.json has no 'external_acls' section — "
+            "skipping external path ACLs (e.g. /var/log for 3PAO)."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -195,8 +209,11 @@ def provision_folders(base_dir: Path, folders: List[Dict], dry_run: bool) -> Non
 # ---------------------------------------------------------------------------
 
 def provision_acls(base_dir: Path, acls: List[Dict], dry_run: bool) -> None:
-    log.info("── Applying POSIX ACLs ──")
+    log.info("── Applying POSIX ACLs (base_dir paths) ──")
     for entry in acls:
+        # Skip comment/section annotation keys that start with _
+        if "entry" not in entry:
+            continue
         path = base_dir / entry["path"]
         acl_entry = entry["entry"]
 
@@ -204,6 +221,35 @@ def provision_acls(base_dir: Path, acls: List[Dict], dry_run: bool) -> None:
             if not dry_run:
                 log.warning("Path does not exist, skipping ACL (%s): %s", acl_entry, path)
                 continue
+        log.info("setfacl -m %s %s", acl_entry, path)
+        run(["setfacl", "-m", acl_entry, str(path)], dry_run)
+
+
+def provision_external_acls(external_acls: List[Dict], dry_run: bool) -> None:
+    """
+    Apply ACL entries on paths outside base_dir.
+
+    These paths (e.g. /var/log) are managed by the OS — we only add ACL
+    grant entries and never change ownership or mode. This gives 3PAO
+    read access to system logs for compliance assessment without touching
+    any saffell-soft managed directory.
+
+    Each entry requires 'path' (absolute) and 'entry' (setfacl format).
+    """
+    log.info("── Applying POSIX ACLs (external paths) ──")
+    for entry in external_acls:
+        if "entry" not in entry:
+            continue
+        path = Path(entry["path"])
+        acl_entry = entry["entry"]
+
+        if not path.exists():
+            log.warning(
+                "External path does not exist, skipping ACL (%s): %s",
+                acl_entry, path,
+            )
+            continue
+
         log.info("setfacl -m %s %s", acl_entry, path)
         run(["setfacl", "-m", acl_entry, str(path)], dry_run)
 
@@ -254,8 +300,22 @@ def print_summary(rules: Dict, acl_available: bool) -> None:
     log.info("  Saffell-Soft filesystem layout  (rules: posix_rules.json)")
     log.info("════════════════════════════════════════════════════════")
     log.info("  Base: %s", base)
-    log.info("")
 
+    # Tier model
+    tier_model = rules.get("_tier_model", {})
+    if tier_model:
+        log.info("")
+        log.info("  Permission tiers:")
+        for tier in tier_model.get("tiers", []):
+            inherits = ", ".join(tier["inherits_from"]) or "none"
+            log.info("    Tier %s  %-10s  inherits: %-20s  own: %s",
+                     tier["tier"], tier["group"], inherits,
+                     ", ".join(tier["own_paths"]))
+        for flat in tier_model.get("flat_roles", []):
+            log.info("    Flat    %-10s  inherits: none  access: %s",
+                     flat["group"], flat["access"])
+
+    log.info("")
     log.info("  Parent directories:")
     for p in rules.get("parent_dirs", []):
         log.info("    %-20s  owner=%s:%s  mode=%s",
@@ -268,7 +328,16 @@ def print_summary(rules: Dict, acl_available: bool) -> None:
                  f["path"], f["owner"], f["group"], f["mode"])
 
     log.info("")
-    log.info("  ACL entries applied: %d", len(rules.get("acls", [])))
+    acl_count = sum(1 for e in rules.get("acls", []) if "entry" in e)
+    ext_count  = sum(1 for e in rules.get("external_acls", []) if "entry" in e)
+    log.info("  ACL entries — base_dir: %d  external: %d", acl_count, ext_count)
+
+    if rules.get("external_acls"):
+        log.info("")
+        log.info("  External ACLs (outside base_dir):")
+        for e in rules["external_acls"]:
+            if "entry" in e:
+                log.info("    setfacl -m %-30s  %s", e["entry"], e["path"])
 
     log.info("")
     log.info("  Deny groups:")
@@ -349,16 +418,24 @@ def main() -> None:
     # 3. Shared subfolders
     provision_folders(base_dir, rules["folders"], args.dry_run)
 
-    # 4. POSIX ACLs
+    # 4. POSIX ACLs on base_dir paths
     if acl_available:
         provision_acls(base_dir, rules["acls"], args.dry_run)
     else:
         log.warning("Skipping ACL provisioning — setfacl unavailable.")
 
-    # 5. Clean up stale sudoers files from previous script versions
+    # 5. External ACLs — paths outside base_dir (e.g. /var/log for 3PAO)
+    if acl_available:
+        external_acls = rules.get("external_acls", [])
+        if external_acls:
+            provision_external_acls(external_acls, args.dry_run)
+        else:
+            log.debug("No external_acls defined in rules — skipping.")
+    
+    # 6. Clean up stale sudoers files from previous script versions
     cleanup_stale_sudoers(rules["sudo_controls"], args.dry_run)
 
-    # 6. Summary
+    # 7. Summary
     print_summary(rules, acl_available)
 
     log.info("Done.")

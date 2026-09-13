@@ -1,16 +1,29 @@
 {
   "ldap_base": "dc=saffell-soft,dc=com",
+
+  "_tier_model": {
+    "description": "Tiered permission inheritance. Each tier inherits all permissions of tiers below it.",
+    "tiers": {
+      "1": { "group": "Employee", "inherits": [] },
+      "2": { "group": "Manager",  "inherits": ["Employee"] },
+      "3": { "group": "Board",    "inherits": ["Employee", "Manager"] }
+    },
+    "flat": {
+      "3PAO": "No inheritance. Read-only on /var/log and manager/reports only."
+    }
+  },
+
   "groups": [
     {
       "name": "Employee",
       "gid": 3001,
-      "description": "Standard employees with no elevated privileges",
+      "description": "Tier 1 — standard employees. Read/write on employee folders.",
       "sudo_rules": []
     },
     {
       "name": "Manager",
       "gid": 3002,
-      "description": "Managers with full sudo admin access",
+      "description": "Tier 2 — inherits Employee. Read/write on employee and manager folders. Full sudo.",
       "sudo_rules": [
         "ALL=(ALL) ALL"
       ]
@@ -18,34 +31,41 @@
     {
       "name": "Board",
       "gid": 3003,
-      "description": "Board members with read-only access",
-      "sudo_rules": []
-    },
-    {
-      "name": "deny_employee",
-      "gid": 3901,
-      "description": "Explicit ACL deny group for employee folders — members are denied all access to /srv/saffell-soft/employee and subfolders",
-      "sudo_rules": []
-    },
-    {
-      "name": "deny_manager",
-      "gid": 3902,
-      "description": "Explicit ACL deny group for manager folders — members are denied all access to /srv/saffell-soft/manager and subfolders",
-      "sudo_rules": []
-    },
-    {
-      "name": "deny_board",
-      "gid": 3903,
-      "description": "Explicit ACL deny group for board folders — members are denied all access to /srv/saffell-soft/board and subfolders",
+      "description": "Tier 3 — inherits Employee and Manager. Read/write own folders, read all others. No sudo.",
       "sudo_rules": []
     },
     {
       "name": "3PAO",
       "gid": 4155,
-      "description": "Third party compliance assessors",
+      "description": "Flat role — Third Party Assessment Organisation. Read-only on /var/log and manager/reports. No inheritance, no sudo.",
+      "sudo_rules": []
+    },
+    {
+      "name": "deny_employee",
+      "gid": 3901,
+      "description": "Deny group — members are blocked from employee folders via named-user ACL entries.",
+      "sudo_rules": []
+    },
+    {
+      "name": "deny_manager",
+      "gid": 3902,
+      "description": "Deny group — members are blocked from manager folders via named-user ACL entries.",
+      "sudo_rules": []
+    },
+    {
+      "name": "deny_board",
+      "gid": 3903,
+      "description": "Deny group — members are blocked from board folders via named-user ACL entries.",
+      "sudo_rules": []
+    },
+    {
+      "name": "deny_3PAO",
+      "gid": 3904,
+      "description": "Deny group — members are blocked from 3PAO read paths (manager/reports, /var/log).",
       "sudo_rules": []
     }
   ],
+
   "users": [
     {
       "uid": "tharris",
@@ -57,7 +77,8 @@
       "home_directory": "/home/tharris",
       "shell": "/bin/bash",
       "password_hash": "",
-      "groups": ["Employee", "deny_board", "deny_manager"],
+      "groups": ["Employee", "deny_manager", "deny_board"],
+      "_tier": 1,
       "sudo_rules": []
     },
     {
@@ -70,7 +91,8 @@
       "home_directory": "/home/mlopez",
       "shell": "/bin/bash",
       "password_hash": "",
-      "groups": ["Employee", "deny_board", "deny_manager"],
+      "groups": ["Employee", "deny_manager", "deny_board"],
+      "_tier": 1,
       "sudo_rules": []
     },
     {
@@ -83,7 +105,8 @@
       "home_directory": "/home/dchen",
       "shell": "/bin/bash",
       "password_hash": "",
-      "groups": ["Employee", "deny_board", "deny_manager"],
+      "groups": ["Employee", "deny_manager", "deny_board"],
+      "_tier": 1,
       "sudo_rules": []
     },
     {
@@ -96,7 +119,9 @@
       "home_directory": "/home/rnovak",
       "shell": "/bin/bash",
       "password_hash": "",
-      "groups": ["Manager", "deny_employee", "deny_board"],
+      "groups": ["Manager", "Employee", "deny_board"],
+      "_tier": 2,
+      "_comment": "Tier 2 — Manager inherits Employee. deny_board blocks board folder access.",
       "sudo_rules": [
         "ALL=(ALL) ALL"
       ]
@@ -111,7 +136,9 @@
       "home_directory": "/home/kwilliams",
       "shell": "/bin/bash",
       "password_hash": "",
-      "groups": ["Manager", "Employee"],
+      "groups": ["Manager", "Employee", "deny_board"],
+      "_tier": 2,
+      "_comment": "Tier 2 — Manager inherits Employee. deny_board blocks board folder access.",
       "sudo_rules": [
         "ALL=(ALL) ALL"
       ]
@@ -126,7 +153,9 @@
       "home_directory": "/home/rsaffell",
       "shell": "/bin/bash",
       "password_hash": "",
-      "groups": ["Board"],
+      "groups": ["Board", "Manager", "Employee"],
+      "_tier": 3,
+      "_comment": "Tier 3 — Board inherits Manager and Employee. No deny groups needed.",
       "sudo_rules": []
     },
     {
@@ -135,11 +164,13 @@
       "surname": "Inspector",
       "email": "derek@assessors-r-us.com",
       "uid_number": 10007,
-      "gid_number": 8115,
-      "home_directory": "/home/rsaffell",
+      "gid_number": 4155,
+      "home_directory": "/home/dinspector",
       "shell": "/bin/bash",
       "password_hash": "",
       "groups": ["3PAO"],
+      "_tier": "flat",
+      "_comment": "3PAO flat role — read-only on /var/log and manager/reports only. No saffell-soft folder access.",
       "sudo_rules": []
     }
   ]

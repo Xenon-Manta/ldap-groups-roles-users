@@ -1,0 +1,1201 @@
+============================================================
+ User Permission Report — Saffell-Soft RBAC
+============================================================
+RBAC file   : /root/ldap-groups-roles-users/rbac.json
+Rules file  : /root/ldap-groups-roles-users/posix_rules.json
+Audit paths : 6 managed paths
+Generated   : Sun Sep 13 01:12:44 UTC 2026
+Host        : ip-10-10-0-47
+============================================================
+
+################################################################
+ USER : tharris
+ Name : Thomas Harris
+ Tier : Tier 1 — Employee
+################################################################
+ Expected groups : Employee, deny_manager, deny_board
+ Actual groups   : Employee,deny_manager,deny_board
+
+ Group membership:
+   [PASS] Employee
+   [PASS] deny_manager
+   [PASS] deny_board
+   Summary: 3 passed, 0 failed
+
+ Sudo rules:
+   (none defined in rbac.json)
+
+ Filesystem access:
+   EFF   MODE         OWNER:GROUP        ACL-MASK           PATH
+   ----- ------------ ------------------ ------------------ ----
+   rwx   drwxrws---   root:Employee      rwx                /srv/saffell-soft/employee/shared
+   rwx   drwxrws---   root:Employee      rwx                /srv/saffell-soft/employee/projects
+   ---   drwxrws---   root:Manager       rwx                /srv/saffell-soft/manager/shared
+   ---   drwxrws---   root:Manager       rwx                /srv/saffell-soft/manager/reports
+   ---   drwxrws---   root:Board         rwx                /srv/saffell-soft/board/workspace
+   r-x   drwxrwxr-x   root:syslog        rwx                /var/log
+
+ ACL snapshot (getfacl):
+
+   --- /srv/saffell-soft/employee/shared ---
+   user::rwx
+   user:rnovak:---
+   group::r-x
+   group:Employee:rwx
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_employee:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:rnovak:---
+   default:group::r-x
+   default:group:Employee:rwx
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_employee:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/employee/projects ---
+   user::rwx
+   user:rnovak:---
+   group::r-x
+   group:Employee:rwx
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_employee:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:rnovak:---
+   default:group::r-x
+   default:group:Employee:rwx
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_employee:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/manager/shared ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   group::r-x
+   group:Employee:---
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_manager:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:group::r-x
+   default:group:Employee:---
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_manager:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/manager/reports ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   group::r-x
+   group:Employee:---
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_manager:---
+   group:deny_3PAO:---
+   group:3PAO:r-x
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:group::r-x
+   default:group:Employee:---
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_manager:---
+   default:group:deny_3PAO:---
+   default:group:3PAO:r-x
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/board/workspace ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   user:rnovak:---
+   user:kwilliams:---
+   group::rwx
+   group:Employee:---
+   group:Board:rwx
+   group:deny_board:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:user:rnovak:---
+   default:user:kwilliams:---
+   default:group::rwx
+   default:group:Employee:---
+   default:group:Board:rwx
+   default:group:deny_board:---
+   default:mask::rwx
+   default:other::---
+   
+
+   --- /var/log ---
+   user::rwx
+   group::rwx
+   group:3PAO:r-x
+   mask::rwx
+   other::r-x
+   default:user::rwx
+   default:group::rwx
+   default:group:3PAO:r-x
+   default:mask::rwx
+   default:other::r-x
+   
+
+ Permission key:
+   r = read access    w = write access
+   x = execute/traverse (directories: traverse into)
+   - = permission denied    ??? = sudo test unavailable for this user
+
+################################################################
+ USER : mlopez
+ Name : Maria Lopez
+ Tier : Tier 1 — Employee
+################################################################
+ Expected groups : Employee, deny_manager, deny_board
+ Actual groups   : Employee,deny_manager,deny_board
+
+ Group membership:
+   [PASS] Employee
+   [PASS] deny_manager
+   [PASS] deny_board
+   Summary: 3 passed, 0 failed
+
+ Sudo rules:
+   (none defined in rbac.json)
+
+ Filesystem access:
+   EFF   MODE         OWNER:GROUP        ACL-MASK           PATH
+   ----- ------------ ------------------ ------------------ ----
+   rwx   drwxrws---   root:Employee      rwx                /srv/saffell-soft/employee/shared
+   rwx   drwxrws---   root:Employee      rwx                /srv/saffell-soft/employee/projects
+   ---   drwxrws---   root:Manager       rwx                /srv/saffell-soft/manager/shared
+   ---   drwxrws---   root:Manager       rwx                /srv/saffell-soft/manager/reports
+   ---   drwxrws---   root:Board         rwx                /srv/saffell-soft/board/workspace
+   r-x   drwxrwxr-x   root:syslog        rwx                /var/log
+
+ ACL snapshot (getfacl):
+
+   --- /srv/saffell-soft/employee/shared ---
+   user::rwx
+   user:rnovak:---
+   group::r-x
+   group:Employee:rwx
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_employee:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:rnovak:---
+   default:group::r-x
+   default:group:Employee:rwx
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_employee:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/employee/projects ---
+   user::rwx
+   user:rnovak:---
+   group::r-x
+   group:Employee:rwx
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_employee:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:rnovak:---
+   default:group::r-x
+   default:group:Employee:rwx
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_employee:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/manager/shared ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   group::r-x
+   group:Employee:---
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_manager:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:group::r-x
+   default:group:Employee:---
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_manager:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/manager/reports ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   group::r-x
+   group:Employee:---
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_manager:---
+   group:deny_3PAO:---
+   group:3PAO:r-x
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:group::r-x
+   default:group:Employee:---
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_manager:---
+   default:group:deny_3PAO:---
+   default:group:3PAO:r-x
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/board/workspace ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   user:rnovak:---
+   user:kwilliams:---
+   group::rwx
+   group:Employee:---
+   group:Board:rwx
+   group:deny_board:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:user:rnovak:---
+   default:user:kwilliams:---
+   default:group::rwx
+   default:group:Employee:---
+   default:group:Board:rwx
+   default:group:deny_board:---
+   default:mask::rwx
+   default:other::---
+   
+
+   --- /var/log ---
+   user::rwx
+   group::rwx
+   group:3PAO:r-x
+   mask::rwx
+   other::r-x
+   default:user::rwx
+   default:group::rwx
+   default:group:3PAO:r-x
+   default:mask::rwx
+   default:other::r-x
+   
+
+ Permission key:
+   r = read access    w = write access
+   x = execute/traverse (directories: traverse into)
+   - = permission denied    ??? = sudo test unavailable for this user
+
+################################################################
+ USER : dchen
+ Name : Daniel Chen
+ Tier : Tier 1 — Employee
+################################################################
+ Expected groups : Employee, deny_manager, deny_board
+ Actual groups   : Employee,deny_manager,deny_board
+
+ Group membership:
+   [PASS] Employee
+   [PASS] deny_manager
+   [PASS] deny_board
+   Summary: 3 passed, 0 failed
+
+ Sudo rules:
+   (none defined in rbac.json)
+
+ Filesystem access:
+   EFF   MODE         OWNER:GROUP        ACL-MASK           PATH
+   ----- ------------ ------------------ ------------------ ----
+   rwx   drwxrws---   root:Employee      rwx                /srv/saffell-soft/employee/shared
+   rwx   drwxrws---   root:Employee      rwx                /srv/saffell-soft/employee/projects
+   ---   drwxrws---   root:Manager       rwx                /srv/saffell-soft/manager/shared
+   ---   drwxrws---   root:Manager       rwx                /srv/saffell-soft/manager/reports
+   ---   drwxrws---   root:Board         rwx                /srv/saffell-soft/board/workspace
+   r-x   drwxrwxr-x   root:syslog        rwx                /var/log
+
+ ACL snapshot (getfacl):
+
+   --- /srv/saffell-soft/employee/shared ---
+   user::rwx
+   user:rnovak:---
+   group::r-x
+   group:Employee:rwx
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_employee:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:rnovak:---
+   default:group::r-x
+   default:group:Employee:rwx
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_employee:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/employee/projects ---
+   user::rwx
+   user:rnovak:---
+   group::r-x
+   group:Employee:rwx
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_employee:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:rnovak:---
+   default:group::r-x
+   default:group:Employee:rwx
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_employee:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/manager/shared ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   group::r-x
+   group:Employee:---
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_manager:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:group::r-x
+   default:group:Employee:---
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_manager:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/manager/reports ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   group::r-x
+   group:Employee:---
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_manager:---
+   group:deny_3PAO:---
+   group:3PAO:r-x
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:group::r-x
+   default:group:Employee:---
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_manager:---
+   default:group:deny_3PAO:---
+   default:group:3PAO:r-x
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/board/workspace ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   user:rnovak:---
+   user:kwilliams:---
+   group::rwx
+   group:Employee:---
+   group:Board:rwx
+   group:deny_board:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:user:rnovak:---
+   default:user:kwilliams:---
+   default:group::rwx
+   default:group:Employee:---
+   default:group:Board:rwx
+   default:group:deny_board:---
+   default:mask::rwx
+   default:other::---
+   
+
+   --- /var/log ---
+   user::rwx
+   group::rwx
+   group:3PAO:r-x
+   mask::rwx
+   other::r-x
+   default:user::rwx
+   default:group::rwx
+   default:group:3PAO:r-x
+   default:mask::rwx
+   default:other::r-x
+   
+
+ Permission key:
+   r = read access    w = write access
+   x = execute/traverse (directories: traverse into)
+   - = permission denied    ??? = sudo test unavailable for this user
+
+################################################################
+ USER : rnovak
+ Name : Rachel Novak
+ Tier : Tier 2 — Manager (inherits Employee)
+################################################################
+ Expected groups : Manager, Employee, deny_board
+ Actual groups   : Manager,Employee,deny_board
+
+ Group membership:
+   [PASS] Manager
+   [PASS] Employee
+   [PASS] deny_board
+   Summary: 3 passed, 0 failed
+
+ Sudo rules:
+   ALL=(ALL) ALL
+
+ Filesystem access:
+   EFF   MODE         OWNER:GROUP        ACL-MASK           PATH
+   ----- ------------ ------------------ ------------------ ----
+   ---   drwxrws---   root:Employee      rwx                /srv/saffell-soft/employee/shared
+   ---   drwxrws---   root:Employee      rwx                /srv/saffell-soft/employee/projects
+   rwx   drwxrws---   root:Manager       rwx                /srv/saffell-soft/manager/shared
+   rwx   drwxrws---   root:Manager       rwx                /srv/saffell-soft/manager/reports
+   ---   drwxrws---   root:Board         rwx                /srv/saffell-soft/board/workspace
+   r-x   drwxrwxr-x   root:syslog        rwx                /var/log
+
+ ACL snapshot (getfacl):
+
+   --- /srv/saffell-soft/employee/shared ---
+   user::rwx
+   user:rnovak:---
+   group::r-x
+   group:Employee:rwx
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_employee:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:rnovak:---
+   default:group::r-x
+   default:group:Employee:rwx
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_employee:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/employee/projects ---
+   user::rwx
+   user:rnovak:---
+   group::r-x
+   group:Employee:rwx
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_employee:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:rnovak:---
+   default:group::r-x
+   default:group:Employee:rwx
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_employee:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/manager/shared ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   group::r-x
+   group:Employee:---
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_manager:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:group::r-x
+   default:group:Employee:---
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_manager:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/manager/reports ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   group::r-x
+   group:Employee:---
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_manager:---
+   group:deny_3PAO:---
+   group:3PAO:r-x
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:group::r-x
+   default:group:Employee:---
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_manager:---
+   default:group:deny_3PAO:---
+   default:group:3PAO:r-x
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/board/workspace ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   user:rnovak:---
+   user:kwilliams:---
+   group::rwx
+   group:Employee:---
+   group:Board:rwx
+   group:deny_board:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:user:rnovak:---
+   default:user:kwilliams:---
+   default:group::rwx
+   default:group:Employee:---
+   default:group:Board:rwx
+   default:group:deny_board:---
+   default:mask::rwx
+   default:other::---
+   
+
+   --- /var/log ---
+   user::rwx
+   group::rwx
+   group:3PAO:r-x
+   mask::rwx
+   other::r-x
+   default:user::rwx
+   default:group::rwx
+   default:group:3PAO:r-x
+   default:mask::rwx
+   default:other::r-x
+   
+
+ Permission key:
+   r = read access    w = write access
+   x = execute/traverse (directories: traverse into)
+   - = permission denied    ??? = sudo test unavailable for this user
+
+################################################################
+ USER : kwilliams
+ Name : Kevin Williams
+ Tier : Tier 2 — Manager (inherits Employee)
+################################################################
+ Expected groups : Manager, Employee, deny_board
+ Actual groups   : Manager,Employee,deny_board
+
+ Group membership:
+   [PASS] Manager
+   [PASS] Employee
+   [PASS] deny_board
+   Summary: 3 passed, 0 failed
+
+ Sudo rules:
+   ALL=(ALL) ALL
+
+ Filesystem access:
+   EFF   MODE         OWNER:GROUP        ACL-MASK           PATH
+   ----- ------------ ------------------ ------------------ ----
+   rwx   drwxrws---   root:Employee      rwx                /srv/saffell-soft/employee/shared
+   rwx   drwxrws---   root:Employee      rwx                /srv/saffell-soft/employee/projects
+   rwx   drwxrws---   root:Manager       rwx                /srv/saffell-soft/manager/shared
+   rwx   drwxrws---   root:Manager       rwx                /srv/saffell-soft/manager/reports
+   ---   drwxrws---   root:Board         rwx                /srv/saffell-soft/board/workspace
+   r-x   drwxrwxr-x   root:syslog        rwx                /var/log
+
+ ACL snapshot (getfacl):
+
+   --- /srv/saffell-soft/employee/shared ---
+   user::rwx
+   user:rnovak:---
+   group::r-x
+   group:Employee:rwx
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_employee:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:rnovak:---
+   default:group::r-x
+   default:group:Employee:rwx
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_employee:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/employee/projects ---
+   user::rwx
+   user:rnovak:---
+   group::r-x
+   group:Employee:rwx
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_employee:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:rnovak:---
+   default:group::r-x
+   default:group:Employee:rwx
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_employee:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/manager/shared ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   group::r-x
+   group:Employee:---
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_manager:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:group::r-x
+   default:group:Employee:---
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_manager:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/manager/reports ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   group::r-x
+   group:Employee:---
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_manager:---
+   group:deny_3PAO:---
+   group:3PAO:r-x
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:group::r-x
+   default:group:Employee:---
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_manager:---
+   default:group:deny_3PAO:---
+   default:group:3PAO:r-x
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/board/workspace ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   user:rnovak:---
+   user:kwilliams:---
+   group::rwx
+   group:Employee:---
+   group:Board:rwx
+   group:deny_board:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:user:rnovak:---
+   default:user:kwilliams:---
+   default:group::rwx
+   default:group:Employee:---
+   default:group:Board:rwx
+   default:group:deny_board:---
+   default:mask::rwx
+   default:other::---
+   
+
+   --- /var/log ---
+   user::rwx
+   group::rwx
+   group:3PAO:r-x
+   mask::rwx
+   other::r-x
+   default:user::rwx
+   default:group::rwx
+   default:group:3PAO:r-x
+   default:mask::rwx
+   default:other::r-x
+   
+
+ Permission key:
+   r = read access    w = write access
+   x = execute/traverse (directories: traverse into)
+   - = permission denied    ??? = sudo test unavailable for this user
+
+################################################################
+ USER : rsaffell
+ Name : Rob Saffell
+ Tier : Tier 3 — Board (inherits Employee + Manager)
+################################################################
+ Expected groups : Board, Manager, Employee
+ Actual groups   : Board,Employee,Manager
+
+ Group membership:
+   [PASS] Board
+   [PASS] Manager
+   [PASS] Employee
+   Summary: 3 passed, 0 failed
+
+ Sudo rules:
+   (none defined in rbac.json)
+
+ Filesystem access:
+   EFF   MODE         OWNER:GROUP        ACL-MASK           PATH
+   ----- ------------ ------------------ ------------------ ----
+   rwx   drwxrws---   root:Employee      rwx                /srv/saffell-soft/employee/shared
+   rwx   drwxrws---   root:Employee      rwx                /srv/saffell-soft/employee/projects
+   rwx   drwxrws---   root:Manager       rwx                /srv/saffell-soft/manager/shared
+   rwx   drwxrws---   root:Manager       rwx                /srv/saffell-soft/manager/reports
+   rwx   drwxrws---   root:Board         rwx                /srv/saffell-soft/board/workspace
+   r-x   drwxrwxr-x   root:syslog        rwx                /var/log
+
+ ACL snapshot (getfacl):
+
+   --- /srv/saffell-soft/employee/shared ---
+   user::rwx
+   user:rnovak:---
+   group::r-x
+   group:Employee:rwx
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_employee:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:rnovak:---
+   default:group::r-x
+   default:group:Employee:rwx
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_employee:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/employee/projects ---
+   user::rwx
+   user:rnovak:---
+   group::r-x
+   group:Employee:rwx
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_employee:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:rnovak:---
+   default:group::r-x
+   default:group:Employee:rwx
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_employee:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/manager/shared ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   group::r-x
+   group:Employee:---
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_manager:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:group::r-x
+   default:group:Employee:---
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_manager:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/manager/reports ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   group::r-x
+   group:Employee:---
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_manager:---
+   group:deny_3PAO:---
+   group:3PAO:r-x
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:group::r-x
+   default:group:Employee:---
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_manager:---
+   default:group:deny_3PAO:---
+   default:group:3PAO:r-x
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/board/workspace ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   user:rnovak:---
+   user:kwilliams:---
+   group::rwx
+   group:Employee:---
+   group:Board:rwx
+   group:deny_board:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:user:rnovak:---
+   default:user:kwilliams:---
+   default:group::rwx
+   default:group:Employee:---
+   default:group:Board:rwx
+   default:group:deny_board:---
+   default:mask::rwx
+   default:other::---
+   
+
+   --- /var/log ---
+   user::rwx
+   group::rwx
+   group:3PAO:r-x
+   mask::rwx
+   other::r-x
+   default:user::rwx
+   default:group::rwx
+   default:group:3PAO:r-x
+   default:mask::rwx
+   default:other::r-x
+   
+
+ Permission key:
+   r = read access    w = write access
+   x = execute/traverse (directories: traverse into)
+   - = permission denied    ??? = sudo test unavailable for this user
+
+################################################################
+ USER : dinspector
+ Name : Derek Inspector
+ Tier : Flat — 3PAO (no inheritance)
+################################################################
+ Expected groups : 3PAO
+ Actual groups   : 3PAO
+
+ Group membership:
+   [PASS] 3PAO
+   Summary: 1 passed, 0 failed
+
+ Sudo rules:
+   (none defined in rbac.json)
+
+ Filesystem access:
+   EFF   MODE         OWNER:GROUP        ACL-MASK           PATH
+   ----- ------------ ------------------ ------------------ ----
+   ---   drwxrws---   root:Employee      rwx                /srv/saffell-soft/employee/shared
+   ---   drwxrws---   root:Employee      rwx                /srv/saffell-soft/employee/projects
+   ---   drwxrws---   root:Manager       rwx                /srv/saffell-soft/manager/shared
+   r-x   drwxrws---   root:Manager       rwx                /srv/saffell-soft/manager/reports
+   ---   drwxrws---   root:Board         rwx                /srv/saffell-soft/board/workspace
+   r-x   drwxrwxr-x   root:syslog        rwx                /var/log
+
+ ACL snapshot (getfacl):
+
+   --- /srv/saffell-soft/employee/shared ---
+   user::rwx
+   user:rnovak:---
+   group::r-x
+   group:Employee:rwx
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_employee:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:rnovak:---
+   default:group::r-x
+   default:group:Employee:rwx
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_employee:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/employee/projects ---
+   user::rwx
+   user:rnovak:---
+   group::r-x
+   group:Employee:rwx
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_employee:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:rnovak:---
+   default:group::r-x
+   default:group:Employee:rwx
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_employee:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/manager/shared ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   group::r-x
+   group:Employee:---
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_manager:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:group::r-x
+   default:group:Employee:---
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_manager:---
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/manager/reports ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   group::r-x
+   group:Employee:---
+   group:Manager:rwx
+   group:Board:r-x
+   group:deny_manager:---
+   group:deny_3PAO:---
+   group:3PAO:r-x
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:group::r-x
+   default:group:Employee:---
+   default:group:Manager:rwx
+   default:group:Board:r-x
+   default:group:deny_manager:---
+   default:group:deny_3PAO:---
+   default:group:3PAO:r-x
+   default:mask::rwx
+   default:other::r-x
+   
+
+   --- /srv/saffell-soft/board/workspace ---
+   user::rwx
+   user:tharris:---
+   user:mlopez:---
+   user:dchen:---
+   user:rnovak:---
+   user:kwilliams:---
+   group::rwx
+   group:Employee:---
+   group:Board:rwx
+   group:deny_board:---
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:user:tharris:---
+   default:user:mlopez:---
+   default:user:dchen:---
+   default:user:rnovak:---
+   default:user:kwilliams:---
+   default:group::rwx
+   default:group:Employee:---
+   default:group:Board:rwx
+   default:group:deny_board:---
+   default:mask::rwx
+   default:other::---
+   
+
+   --- /var/log ---
+   user::rwx
+   group::rwx
+   group:3PAO:r-x
+   mask::rwx
+   other::r-x
+   default:user::rwx
+   default:group::rwx
+   default:group:3PAO:r-x
+   default:mask::rwx
+   default:other::r-x
+   
+
+ Permission key:
+   r = read access    w = write access
+   x = execute/traverse (directories: traverse into)
+   - = permission denied    ??? = sudo test unavailable for this user
+
+============================================================
+ Report complete
+============================================================

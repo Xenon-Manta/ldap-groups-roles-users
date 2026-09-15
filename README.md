@@ -10,10 +10,11 @@ No third-party dependencies — standard library only.
 
 ```
 ldap-groups-roles-users/
-├── rbac.json           # Users, groups, sudo rules, and tier annotations
-├── posix_rules.json    # Filesystem layout, ACL entries, deny groups, sudo controls
-├── rbac_sync.py        # Syncs users/groups to the OS and applies deny ACLs
-└── rbac_fs.py          # Provisions folder structure and POSIX ACLs
+├── rbac.json                     # Users, groups, sudo rules, and tier annotations
+├── posix_rules.json              # Filesystem layout, ACL entries, deny groups, sudo controls
+├── rbac_sync.py                  # Syncs users/groups to the OS and applies deny ACLs
+├── rbac_fs.py                    # Provisions folder structure and POSIX ACLs
+└── user-permissions-report.sh    # Audits effective permissions for every user in rbac.json
 ```
 
 ---
@@ -188,6 +189,47 @@ sudo python3 rbac_fs.py [OPTIONS]
 6. Removes stale sudoers drop-in files from previous script versions
 
 > Run `rbac_sync.py` before `rbac_fs.py` on a fresh system — groups must exist before ACLs referencing them can be applied.
+
+### `user-permissions-report.sh`
+
+Produces a recursive, read-only audit of effective permissions for every user defined in `rbac.json`. Makes no changes to the system — safe to run any time to verify the RBAC state matches expectations.
+
+```bash
+sudo ./user-permissions-report.sh [OPTIONS]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--config PATH` | `./rbac.json` | Path to the RBAC config file |
+| `--rules PATH` | `./posix_rules.json` | Path to the POSIX rules file |
+| `--path PATH` | `base_dir` from rules | Override the audit root with a recursive walk of this directory |
+| `--no-acl` | off | Skip `getfacl` ACL snapshots |
+| `--help` | — | Show usage |
+
+**For each user in `rbac.json` the report shows:**
+1. **Identity** — uid, display name, and tier label (e.g. `Tier 2 — Manager (inherits Employee)`)
+2. **Account check** — flags users defined in `rbac.json` but missing from the system
+3. **Group membership** — pass/fail for each expected group, with a summary count
+4. **Sudo rules** — rules defined in `rbac.json`, plus a warning if the user is unexpectedly in `sudo`/`wheel`/`admin`
+5. **Filesystem access** — effective `rwx` for the user on every managed path (from `folders` and `external_acls` in `posix_rules.json`), with owner, group, mode, and ACL mask
+6. **ACL snapshot** — `getfacl` output for each managed directory
+
+**Audit scope:** paths are read from `posix_rules.json` — every folder under `base_dir` plus external paths like `/var/log`. Use `--path` to audit an arbitrary directory tree instead.
+
+**Anomaly flags** raised in the filesystem section:
+- `← [WARN] write access outside employee scope` — a Tier 1 user has write beyond their own folders
+- `← [WARN] 3PAO should not have write access` — the flat 3PAO role has write anywhere
+- `← sudo test unavailable` — the user has no passwordless sudo, so effective permissions could not be tested (shown as `???`)
+
+**Requirements:** `jq`, `realpath` (coreutils), and `acl` for `getfacl` (ACL snapshots are skipped with a warning if `getfacl` is absent). Run as root for accurate `sudo -u` permission tests.
+
+```bash
+# Full report using default config locations
+sudo ./user-permissions-report.sh
+
+# Audit a custom directory tree, skipping ACL snapshots
+sudo ./user-permissions-report.sh --path /srv/saffell-soft/manager --no-acl
+```
 
 ---
 
